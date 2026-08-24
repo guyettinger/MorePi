@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+*.tsbuildinfo
+
+# Local runtime stores created by the framework
+.pi/self/
+.pi/
+.self/
+
+# Logs / temp
+*.log
+*.tmp
+.DS_Store
+
+# Editor / OS
+.idea/
+.vscode/
+*.local
