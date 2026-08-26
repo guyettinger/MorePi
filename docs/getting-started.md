@@ -74,7 +74,7 @@ pi -e ./extensions/index.ts
 or, from the MorePi repo, the convenience script:
 
 ```bash
-npm run preview    # == pi -e ./extensions/index.ts (interactive, needs a TTY)
+npm run dev        # == pi -e ./extensions/index.ts (interactive, needs a TTY)
 ```
 
 > **Requirements recap:** Node `>= 22.19.0`. No build step is required to *run*

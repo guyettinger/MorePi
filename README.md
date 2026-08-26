@@ -15,7 +15,7 @@ framework does can escape your control.
 pi install morepi
 
 # …or load a local checkout directly (needs a TTY)
-npm run preview          # == pi -e ./extensions/index.ts
+npm run dev              # == pi -e ./extensions/index.ts
 ```
 
 Pi loads the extension through `jiti`, so **there is no build step** — it runs
