@@ -31,6 +31,10 @@ describe("DEFAULT_CONFIG", () => {
 		expect(DEFAULT_CONFIG.memoryRecall.defaultLimit).toBe(5);
 		expect(DEFAULT_CONFIG.memoryRecall.minScore).toBe(0.15);
 	});
+
+	it("default frameworkGuard mode is 'protect' (self-modification stays gated by default)", () => {
+		expect(DEFAULT_CONFIG.frameworkGuard.mode).toBe("protect");
+	});
 });
 
 describe("resolvePaths", () => {

@@ -88,6 +88,30 @@ describe("guardrails", () => {
 		it("classifies write to project path as project/write-context", () => {
 			const result = classifyAction({ tool: "write", input: { path: "/other/project/src/foo.ts" }, cwd: "/project" });
 			expect(result.radius).toBe("project");
+			expect(result.changeClass).toBe("write-context");
+		});
+
+		it("classifies an ordinary project edit as low-impact write-context, not modify-framework", () => {
+			// Regression: an `edit` in the user's own project must not be labelled a
+			// framework change merely because the tool is `edit`. Ordinary edits must
+			// not be over-blocked.
+			const result = classifyAction({
+				tool: "edit",
+				input: { path: "/other/project/src/foo.ts" },
+				cwd: "/other/project",
+				frameworkRoot: "/opt/framework",
+			});
+			expect(result.changeClass).toBe("write-context");
+			expect(result.radius).toBe("project");
+			const r = scoreRisk({
+				tool: "edit",
+				input: { path: "/other/project/src/foo.ts" },
+				cwd: "/other/project",
+				frameworkRoot: "/opt/framework",
+			});
+			expect(r.hardStop).toBe(false);
+			expect(r.rule).not.toBe("framework-source");
+			expect(r.score).toBeLessThan(80);
 		});
 	});
 
@@ -173,6 +197,47 @@ describe("guardrails", () => {
 			});
 			expect(r.hardStop).toBe(true);
 			expect(r.rule).toBe("framework-source");
+		});
+
+		it("framework-source edit is still hard-stopped under explicit 'protect' mode", () => {
+			const r = scoreRisk({
+				tool: "edit",
+				input: { path: "src/guardrails.ts" },
+				cwd: "/framework",
+				frameworkRoot: "/framework",
+				frameworkGuard: "protect",
+			});
+			expect(r.hardStop).toBe(true);
+			expect(r.rule).toBe("framework-source");
+		});
+
+		it("develop mode does NOT hard-stop a framework-source edit and routes it to allow", () => {
+			const r = scoreRisk({
+				tool: "edit",
+				input: { path: "src/guardrails.ts" },
+				cwd: "/framework",
+				frameworkRoot: "/framework",
+				frameworkGuard: "develop",
+			});
+			expect(r.hardStop).toBe(false);
+			expect(r.rule).not.toBe("framework-source");
+			// The relaxed guard caps the score into the allow band so a maintainer
+			// can edit their own checkout; the caller still records the opt-in.
+			expect(r.decision).toBe("allow");
+			expect(r.score).toBeLessThan(55);
+		});
+
+		it("develop mode does not weaken the pipeline floor for framework changes", () => {
+			const r = scoreRisk({
+				tool: "evolve_tool",
+				input: { kind: "modify" },
+				cwd: "/framework",
+				frameworkRoot: "/framework",
+				frameworkGuard: "develop",
+				viaPipeline: true,
+			});
+			expect(r.hardStop).toBe(false);
+			expect(r.score).toBeGreaterThanOrEqual(70);
 		});
 
 		it("does NOT hardstop a user's own src/ (not framework root)", () => {

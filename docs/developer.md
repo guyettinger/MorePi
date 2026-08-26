@@ -157,6 +157,16 @@ Set the matching `enable.*` flag to `false` (Configuration §1): e.g.
 deliberate opt-out that the audit log records as `guarded-off`, so keep it on
 unless you mean it.
 
+**"The guardrails won't let pi edit the framework itself."**
+That is the framework-source guard doing its default (`protect`) job: built-in
+`edit`/`write` to `frameworkRoot/src` are hard-stopped so an end user can't have
+the agent rewrite the extension for them. A *maintainer* working in a checkout
+enables **develop mode** with `MOREPI_DEVELOP=1` (or `MOREPI_FRAMEWORK_GUARD=develop`,
+or `frameworkGuard: "develop"` in config). Develop mode relaxes that hard-stop so
+framework-source edits route through the normal approval/allow path — and every
+such edit is still recorded in the audit log, so it is a conscious, audited,
+reversible opt-in. Default behavior stays `protect`.
+
 ---
 
 *See also:* [Getting started](./getting-started.md) ·

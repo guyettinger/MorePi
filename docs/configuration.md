@@ -22,7 +22,7 @@ For how each capability behaves once configured, see the
 | `enable.compaction` | `true` | structured compaction + fact extraction |
 | `approvalThreshold` | `55` | score at/above which an action asks for approval |
 | `blockThreshold` | `80` | score at/above which an action is blocked outright |
-| `context.defaultKeepFraction` | `0.25` | fraction of a forgotten fact kept in its summary |
+| `frameworkGuard.mode` | `"protect"` | posture toward the framework's **own** source — `"protect"` hard-stops built-in edits to `frameworkRoot/src`; `"develop"` relaxes it (audited) so a maintainer can work on the framework || `context.defaultKeepFraction` | `0.25` | fraction of a forgotten fact kept in its summary |
 | `context.maxTracked` | `500` | max remembered/forgotten ids tracked per branch |
 | `memoryRecall.defaultLimit` | `5` | facts returned by a default `memory_recall` |
 | `memoryRecall.minScore` | `0.15` | cosine floor for "relevant" recall |
@@ -32,6 +32,16 @@ For how each capability behaves once configured, see the
 (fewer prompts as you raise it) and `blockThreshold` (more conservative as you
 lower it). For memory-heavy sessions, raise `memoryRecall.defaultLimit` so more
 facts surface per recall; raise `context.maxTracked` if you remember a lot.
+
+**Letting pi edit the framework itself.** By default `frameworkGuard.mode` is
+`"protect"`: a built-in `edit`/`write` that targets the framework's own
+`frameworkRoot/src` is hard-stopped, so an end user cannot have the agent rewrite
+the extension for them. A maintainer developing the framework enables **develop
+mode** by setting `frameworkGuard: { mode: "develop" }` in config, or by exporting
+`MOREPI_DEVELOP=1` / `MOREPI_FRAMEWORK_GUARD=develop`. Develop mode relaxes that
+hard-stop so framework-source edits route through the normal approval/allow path;
+the audit log still records every such edit as a `change-approved` system record, so
+the opt-in is conscious, reversible, and never silent.
 
 ---
 

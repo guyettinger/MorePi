@@ -27,6 +27,11 @@ invariants intact — see "Do not regress" at the end.
      activation time. The extension's own source cannot be rewritten by
     arbitrary in-session tool use.
 
+A maintainer *developing* the framework can enable **develop mode** (`frameworkGuard: "develop"`,
+or `MOREPI_DEVELOP=1`), which relaxes that hard-stop so framework-source edits route through the
+normal approval/allow path. Every such edit is **recorded in the audit log** (`change-approved,
+actor system`), so the opt-in is conscious and reversible, never silent.
+
 ---
 
 ## 2. The governance gate
@@ -86,8 +91,11 @@ the gate never lets through:
 | `NETWORK_INJECT` | `curl ... | sh`, `curl ... | bash`, `wget ... | bash`, `wget ... | sh` | Remote code execution. |
 | `SECRET_DIRS` | Path touches `.git/`, `.env`, `.aws/`, `.ssh/`, `.kube/` | Leaks or corruption of credentials and VCS history. |
 
-Plus the **framework-source guard** (§1): any tool other than the sanctioned
-`/evolve` pipeline is hard-stopped from writing within `frameworkRoot/src`.
+Plus the **framework-source guard** (§1): by default any tool other than the sanctioned
+`/evolve` pipeline is hard-stopped from writing within `frameworkRoot/src`. The single exception
+is a consciously enabled **develop mode** (`frameworkGuard: "develop"` / `MOREPI_DEVELOP=1`):
+a maintainer editing the framework's own checkout may write to `frameworkRoot/src`, but every
+such edit is still logged to the audit ledger, so the opt-in never happens silently.
 
 ---
 
@@ -116,8 +124,10 @@ agent reads it before acting):
 2. **Lossless forgetting** — `context_forget` continues to prune only framework
     injected `mem_<id>` messages, matched by query substring. No
     `isError`/`isEmpty` heuristics.
-3. **Framework-source guard** — the `/evolve` pipeline stays the *only* path that
-    can write within `frameworkRoot/src`, and it stays routed through approval.
+3. **Framework-source guard** — the `/evolve` pipeline stays the *only default* path that
+    can write within `frameworkRoot/src`, and it stays routed through approval. `develop` mode
+    is the *only sanctioned* way to edit the framework outside that pipeline; it is an audited,
+    reversible opt-in (`frameworkGuard: "develop"`, default `protect`) — never a silent relaxation.
 
 ---
 
