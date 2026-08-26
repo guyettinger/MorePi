@@ -139,7 +139,7 @@ These invariants protect the user and are enforced by the gates above:
   query) — never user/tool history, never `isError`/`isEmpty` heuristics.
 - **Framework-source guard.** Edits within the framework's own `frameworkRoot/src`
   are hard-stopped for every tool except the sanctioned `/evolve` pipeline, which
-  routes through approval at activation.
+  routes through approval at activation. This blocks an end user having the agent rewrite the extension for them; a maintainer developing the framework opts into `develop` mode (`MOREPI_DEVELOP=1` / `frameworkGuard: "develop"`), which relaxes that hard-stop while still logging every framework-source edit to the audit log.
 - **Hard stops regardless of score:** `DESTRUCTIVE` shell commands, `PRIVILEGE`
   escalation (`sudo`), `NETWORK_INJECT` (`curl … | bash`), and `SECRET_DIRS`
   (`.git/`, `.env`, `.aws/`, `.ssh/`, `.kube/`).

@@ -24,6 +24,15 @@ export interface ActionInput {
 	/** True when the action originates from the sanctioned evolution pipeline. */
 	viaPipeline?: boolean;
 	/**
+	 * Framework-source guard posture for this action. `"protect"` (the default and
+	 * the only value the runtime ever sets on its own) hard-stops built-in edits
+	 * to framework source. `"develop"` is an opt-in a maintainer enables (via
+	 * config or environment) to work on the framework's own checkout: framework
+	 * edits are no longer hard-blocked — they route through the normal approval /
+	 * allow path and remain recorded in the audit log.
+	 */
+	frameworkGuard?: "protect" | "develop";
+	/**
 	 * Absolute root of the framework's own install directory. Framework-source
 	 * edits are detected relative to this only, so an ordinary user editing
 	 * their own `src/` or `package.json` is never mistaken for a framework
@@ -73,9 +82,13 @@ export function classifyAction(action: ActionInput): { radius: BlastRadius; chan
 
 	if (tool === "write" || tool === "edit") {
 		const path = pickWritePath(action);
-		let radius: BlastRadius = "project";
-		if (touchesSystem(path, action.cwd)) radius = "system";
-		return { radius, changeClass: tool === "write" ? "write-context" : "modify-framework" };
+		if (touchesSystem(path, action.cwd)) return { radius: "system", changeClass: "modify-framework" };
+		// Only edits that actually target the framework's own source are
+		// "modify-framework". An ordinary `edit`/`write` in the user's project is
+		// a low-impact local write, not a framework change — classifying it as
+		// framework modification is what over-blocked ordinary edits.
+		if (isFrameworkSource(path, action.frameworkRoot)) return { radius: "project", changeClass: "modify-framework" };
+		return { radius: "project", changeClass: "write-context" };
 	}
 
 	return { radius: "self", changeClass: "write-context" };
@@ -138,12 +151,25 @@ export function scoreRisk(action: ActionInput): RiskAssessment {
 	}
 
 	// Direct edits to framework source are blocked unless they go through the
-	// sanctioned evolution pipeline (which performs its own approval gating).
+	// sanctioned evolution pipeline (which performs its own approval gating) —
+	// or unless the maintainer has opted into "develop" mode, in which case
+	// framework-source edits route through the normal approval/allow path instead
+	// of being hard-stopped, so a maintainer can work on the framework itself.
 	const touchesFramework = isFrameworkSource(path, action.frameworkRoot);
+	const developing = action.frameworkGuard === "develop";
 	if (touchesFramework && !action.viaPipeline) {
-		hardStop = true;
-		rule = "framework-source";
-		reasons.push("hard stop: direct framework-source edit bypasses the evolution pipeline");
+		if (developing) {
+			// Relax the hard-stop but keep the action out of the block band so a
+			// maintainer editing their own checkout is not blocked on every edit.
+			// The relaxed guard is still recorded by the caller, so nothing
+			// happens silently.
+			score = Math.min(score, DEFAULT_CONFIG.approvalThreshold - 1);
+			reasons.push("framework-source edit in develop mode (guard relaxed, audited)");
+		} else {
+			hardStop = true;
+			rule = "framework-source";
+			reasons.push("hard stop: direct framework-source edit bypasses the evolution pipeline");
+		}
 	} else if (touchesFramework && action.viaPipeline) {
 		score = Math.max(score, 70);
 		reasons.push("framework change via pipeline (+30 floor)");

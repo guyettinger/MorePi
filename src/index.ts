@@ -17,7 +17,7 @@ import type { FrameworkConfig } from "./config.js";
 import { DEFAULT_CONFIG } from "./config.js";
 import { activeRemembered, formatRememberedMessage, matchForgetTargets, type RememberedFact } from "./context.js";
 import { evaluateQuality } from "./evaluation.js";
-import { type ActionInput, scoreRisk } from "./guardrails.js";
+import { type ActionInput, isFrameworkSource, scoreRisk } from "./guardrails.js";
 import { BranchState, type EntryLike, emptyState, reconstructState, STATE_CUSTOM_TYPE } from "./registry.js";
 import { newSkillRecord, type SkillDraft } from "./skills.js";
 import { createStoreManager, type ScopedStores, type StoreManager } from "./stores.js";
@@ -56,6 +56,29 @@ const EMPTY_METRIC: EvolvedToolMetric = {
 // ---------------------------------------------------------------------------
 
 const FRAMEWORK_ROOT = resolveFrameworkRoot(import.meta.url);
+
+/**
+ * Load the effective configuration. Starts from {@link DEFAULT_CONFIG} and layers
+ * on a developer escape hatch so a maintainer can work on the framework itself
+ * without hard-blocking every self-edit:
+ *
+ *   MOREPI_FRAMEWORK_GUARD=develop   (or =protect)  — explicit override
+ *   MOREPI_DEVELOP=1                 — shorthand for develop mode
+ *
+ * Default posture stays `protect`; the override is a conscious, audited choice.
+ */
+function resolveConfig(): FrameworkConfig {
+	let mode = DEFAULT_CONFIG.frameworkGuard.mode;
+	const explicit = env("MOREPI_FRAMEWORK_GUARD")?.toLowerCase();
+	if (explicit === "develop" || explicit === "protect") mode = explicit;
+	else if (env("MOREPI_DEVELOP") === "1" || env("MOREPI_DEVELOP") === "true") mode = "develop";
+	return { ...DEFAULT_CONFIG, frameworkGuard: { mode } };
+}
+
+/** Read a process environment variable (variable key keeps both TS and Biome happy). */
+function env(name: string): string | undefined {
+	return process.env[name];
+}
 
 function resolveFrameworkRoot(url: string | undefined): string {
 	if (url?.startsWith("file:")) {
@@ -732,7 +755,7 @@ function buildGate(config: FrameworkConfig, ctx: ExtensionContext): Gate {
  * context injection, governance enforcement, and structured compaction.
  */
 export default function morePiExtension(pi: ExtensionAPI): void {
-	const config = DEFAULT_CONFIG;
+	const config = resolveConfig();
 	const manager = createStoreManager(process.cwd(), config);
 
 	// Register tools for each enabled subsystem.
@@ -778,11 +801,14 @@ export default function morePiExtension(pi: ExtensionAPI): void {
 	pi.on("tool_call", async (event, ctx) => {
 		if (!config.enable.guardrails) return;
 		if (FRAMEWORK_TOOLS.has(event.toolName)) return; // framework tools self-gate
+		const developing = config.frameworkGuard.mode === "develop";
+		const target = targetPath(event.input);
 		const action: ActionInput = {
 			tool: event.toolName,
 			input: event.input as unknown as Record<string, unknown> | string,
 			cwd: ctx.cwd,
 			frameworkRoot: FRAMEWORK_ROOT,
+			frameworkGuard: config.frameworkGuard.mode,
 		};
 		const risk = scoreRisk(action);
 		const st = manager.project(ctx.cwd, config);
@@ -811,6 +837,20 @@ export default function morePiExtension(pi: ExtensionAPI): void {
 				{ score: risk.score },
 			);
 			return ok ? undefined : { block: true, reason: "declined by user" };
+		}
+		// Developer escape hatch: a framework-source edit in "develop" mode is not
+		// hard-stopped, so record the relaxed guard explicitly — nothing is allowed
+		// silently; the opt-in stays visible in the audit ledger.
+		if (developing && isFrameworkSource(target, FRAMEWORK_ROOT)) {
+			await recordAudit(
+				manager,
+				st,
+				undefined,
+				"change-approved",
+				"system",
+				`develop-mode framework edit allowed: ${event.toolName} ${target}`,
+				{ score: risk.score, mode: config.frameworkGuard.mode },
+			);
 		}
 		return;
 	});
@@ -918,6 +958,16 @@ export default function morePiExtension(pi: ExtensionAPI): void {
 
 function openTasksFrom(_preparation: { settings?: { enabled: boolean } }): string[] {
 	return [];
+}
+
+/** Best-effort path target of a built-in tool call, for the develop-mode audit. */
+function targetPath(input: unknown): string {
+	if (typeof input === "string") return input;
+	if (input && typeof input === "object" && "path" in input) {
+		const path = (input as { path?: unknown }).path;
+		return typeof path === "string" ? path : "";
+	}
+	return "";
 }
 
 // Re-exports for consumers that import the framework as a library.

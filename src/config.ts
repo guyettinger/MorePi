@@ -75,6 +75,21 @@ export interface FrameworkConfig {
 		/** Cosine-similarity floor for "relevant" matches. */
 		minScore: number;
 	};
+	/**
+	 * How the framework treats direct edits to its own source (`frameworkRoot`),
+	 * which is the only way a maintainer can rewrite the framework by running pi
+	 * inside its own checkout.
+	 *
+	 * `"protect"` (default) hard-stops built-in edits to framework source; only
+	 * the sanctioned `/evolve` pipeline may write there. `"develop"` relaxes that
+	 * hard-stop so framework edits are no longer blocked outright — they route
+	 * through the normal approval/allow path and are recorded in the audit log as
+	 * a deliberate opt-in. This is the escape hatch a maintainer uses to work on
+	 * the framework itself; it is a conscious, audited, reversible change.
+	 */
+	frameworkGuard: {
+		mode: "protect" | "develop";
+	};
 }
 
 export const CONFIG_DIR_NAME = ".pi";
@@ -101,6 +116,9 @@ export const DEFAULT_CONFIG: FrameworkConfig = {
 	memoryRecall: {
 		defaultLimit: 5,
 		minScore: 0.15,
+	},
+	frameworkGuard: {
+		mode: "protect",
 	},
 };
 
