@@ -29,16 +29,16 @@ npm run typecheck   # tsc --noEmit (TS7 strict: noUncheckedIndexedAccess, verbat
 npm run lint        # biome check .
 npm test            # vitest run
 npm run smoke       # node scripts/smoke.mjs — loads the entry via jiti with a stub ExtensionAPI
-npm run preview     # pi -e ./extensions/index.ts — needs a TTY; the full interactive experience
+npm run dev         # pi -e ./extensions/index.ts — needs a TTY; the full interactive experience
 ```
 
 - **`smoke`** exercises the *real* entry under `jiti`, but swaps the live pi
      `ExtensionAPI` for a stub that captures registered tools/commands/events, so
      it runs headless with **no TTY and no ollama**.
-- **`preview`** boots the real extension (or your local override) in a real pi
+- **`dev`** boots the real extension (or your local override) in a real pi
      session — the end-to-end test. It **needs a TTY**, so run it in an
      interactive terminal (a non-TTY shell prints a hint and exits).
-- **Local run, no build:** `pi -e ./extensions/index.ts` (= `npm run preview`)
+- **Local run, no build:** `pi -e ./extensions/index.ts` (= `npm run dev`)
      or your project's `pi -e ./extensions/index.ts` override.
 - **No `build`:** the extension is loaded as `.ts` by jiti; there is no compiled
      artifact. (A compiled bundle is only ever needed *for distribution*, not for
@@ -72,7 +72,7 @@ agent reads before acting.
     safety invariants intact (see [Threat model](./threat-model.md)).
 - **End-to-end smoke:** a hand-written `scripts/smoke.mjs` loads the real entry
     through `jiti` with a stub `ExtensionAPI` — see §1.
-- **Live run:** `npm run preview` for the full interactive path.
+- **Live run:** `npm run dev` for the full interactive path.
 - **CI matrix:** see §1 (Node 22 / 24).
 
 ---

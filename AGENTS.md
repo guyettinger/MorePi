@@ -151,7 +151,7 @@ npm run check        # lint + typecheck (the fast gate bundle)
 npm run typecheck    # tsc --noEmit
 npm test             # vitest run   (+ npm test:watch to watch)
 npm run smoke        # load entry via jiti with a stub ExtensionAPI
-npm run preview      # pi -e ./extensions/index.ts  (interactive, needs a TTY)
+npm run dev          # pi -e ./extensions/index.ts  (interactive, needs a TTY)
 ```
 
 ## PR & commit instructions

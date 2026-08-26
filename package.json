@@ -34,7 +34,7 @@
 		"smoke": "node ./scripts/smoke.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"preview": "pi -e ./extensions/index.ts"
+		"dev": "pi -e ./extensions/index.ts"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-agent-core": "*",
