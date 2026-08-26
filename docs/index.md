@@ -21,6 +21,7 @@ below.
 | Understand the threat model and safety invariants | [Threat model](./threat-model.md) |
 | Understand the design rationale and research | [Design](./design.md) |
 | Build, test, or contribute | [Developer guide](./developer.md) |
+| Drain a findings review to completion | [Findings queue & usage](./findings/usage.md) |
 
 ## Reference
 
