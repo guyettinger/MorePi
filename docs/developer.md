@@ -77,7 +77,39 @@ agent reads before acting.
 
 ---
 
-## 3. Troubleshooting / FAQ
+## 3. Findings workflow
+
+A point-in-time review of `src/` (duplication / reduction, safety smells) is
+worked to completion by a **checkpoint-driven, resumable queue** in
+`docs/findings/`, drained by the `process-findings` skill
+(`.agents/skills/process-findings/SKILL.md`):
+
+- **`queue.md`** — the living list of **pending** findings. An addressed finding
+   is **removed** from it, so the queue drains to empty (`next` prints
+   `ALL DONE`).
+- **`ledger.md`** — the append-only disposition record; each addressed finding keeps
+   its text, fix, gates, and changed files here so nothing is lost when it leaves
+   the queue.
+- **`.checkpoint.json`** — the machine resume state (per-item `status`, gates,
+   changed files).
+- **`usage.md`** — the how-to (core rules, dispositions, schema, resuming):
+   **read it, it is kept separate from the queue on purpose.**
+
+Drive it without an agent with the read-only state tool:
+
+```bash
+node .agents/skills/process-findings/scripts/queue-state.mjs next    # first pending, or "ALL DONE"
+node .agents/skills/process-findings/scripts/queue-state.mjs status  # full table
+node .agents/skills/process-findings/scripts/queue-state.mjs validate
+```
+
+One fresh subagent per finding (`concurrency=1`, no session reuse), the full gate
+set green between items, the six invariants intact — the queue drains and the
+ledger fills. See `docs/findings/usage.md` and the `process-findings` skill.
+
+---
+
+## 4. Troubleshooting / FAQ
 
 **"Why is there no `build` / no `dist`?"**
 Pi loads the extension as `.ts` via `jiti`, so running it needs no compiled
@@ -129,4 +161,4 @@ unless you mean it.
 
 *See also:* [Getting started](./getting-started.md) ·
 [User guide](./user-guide.md) · [Configuration](./configuration.md) ·
-[Threat model](./threat-model.md)
+[Threat model](./threat-model.md) · [Findings queue & usage](./findings/usage.md)

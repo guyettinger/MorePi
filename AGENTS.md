@@ -172,4 +172,9 @@ npm run preview      # pi -e ./extensions/index.ts  (interactive, needs a TTY)
 - `docs/threat-model.md` — enforced safety invariants, risk scoring, hard stops.
 - `docs/design.md` — full design rationale, threat reasoning & external research.
 - `docs/developer.md` — build, test, verify, and contributor troubleshooting.
+- `docs/findings/` — the findings **workflow**: a living [queue](docs/findings/queue.md) of pending
+  findings, an append-only [ledger](docs/findings/ledger.md), a machine
+  [`.checkpoint.json`](docs/findings/.checkpoint.json), and the [how-to](docs/findings/usage.md).
+  Drained by the `process-findings` skill (`.agents/skills/process-findings/`), one
+  fresh subagent per finding via `scripts/queue-state.mjs`.
 - `src/index.ts` — where the framework wires itself into pi.

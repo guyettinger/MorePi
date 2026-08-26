@@ -49,6 +49,7 @@ and how to tune the thresholds live in the
 | Understand the threat model and safety invariants | [Threat model](docs/threat-model.md) |
 | Read the design rationale and research | [Design](docs/design.md) |
 | Build, test, or contribute | [Developer guide](docs/developer.md) |
+| Drain a findings review to completion | [Findings queue & usage](docs/findings/usage.md) |
 
 A fuller index with a "where to start" map: [docs/index.md](docs/index.md).
 

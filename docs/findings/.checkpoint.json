@@ -1,23 +1,24 @@
 {
-	"$schema": "morepi/addressed-checkpoint",
+	"$schema": "morepi/findings-checkpoint",
 	"version": 2,
-	"source": "docs/review.md",
-	"record": "docs/addressed.md",
-	"checkpointFile": ".addressed-checkpoint.json",
-	"strategy": "one fresh subagent per finding A-G, sequential concurrency=1, no session reuse, no transcript passing",
+	"source": "docs/findings/queue.md",
+	"record": "docs/findings/ledger.md",
+	"checkpointFile": "docs/findings/.checkpoint.json",
+	"strategy": "one fresh subagent per finding A-G, sequential concurrency=1, no session reuse, no transcript passing; addressed findings are drained from queue.md and appended to ledger.md",
 	"gitHeadBaseline": "00f70dbeac39c90f65e115a2175c374ebb197bc",
 	"updatedAt": "2026-08-26T16:25:51.177Z",
 	"baselineGates": {
-		"lint": "green except checkpoint JSON (tab-formatted to satisfy biome; excluded via .biomeignore)",
+		"lint": "green including checkpoint JSON (tab-formatted to satisfy biome)",
 		"typecheck": "pass",
 		"test": "145 tests pass",
 		"smoke": "skips jiti load check (expected, jiti absent)"
 	},
 	"notes": [
-		"subagent owns the code change + runs gates; orchestrator owns docs/addressed.md + this checkpoint",
+		"subagent owns the code change + runs gates; orchestrator owns docs/findings/ledger.md + queue.md drain + this checkpoint",
 		"concurrency=1: items processed sequentially, one fresh subagent each, checkpoint persisted after each item",
 		"on interruption, resume from the first item whose status is not done; util.ts work is additive/idempotent",
-		"A and B are the two 'sensitive' findings per review; both processed with the user-visible/drift caveat recorded"
+		"A and B are the two 'sensitive' findings per review; both processed with the user-visible/drift caveat recorded",
+		"queue is empty: all findings A-G are addressed and appended to docs/findings/ledger.md; how-to lives in docs/findings/usage.md"
 	],
 	"items": [
 		{
@@ -27,6 +28,7 @@
 			"disposition": "noop-verify",
 			"caveat": "sensitive: gating-adjacent, already rerouted through DEFAULT_CONFIG in baseline tree",
 			"summary": "Already applied in working tree at baseline HEAD; verified guardrails.ts:175, approval.ts:41, evolution.ts:115/137 now read DEFAULT_CONFIG.approvalThreshold/blockThreshold; 55/80 literals remain only in config.ts DEFAULT_CONFIG (their canonical home). No change needed; record documents verification + clean gate.",
+			"changedFiles": [],
 			"updatedAt": "2026-08-25T21:33:00Z"
 		},
 		{
