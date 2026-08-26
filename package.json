@@ -68,10 +68,10 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/yourname/morepi.git"
+		"url": "git+https://github.com/guyettinger/morepi.git"
 	},
-	"homepage": "https://github.com/yourname/morepi#readme",
+	"homepage": "https://github.com/guyettinger/morepi#readme",
 	"bugs": {
-		"url": "https://github.com/yourname/morepi/issues"
+		"url": "https://github.com/guyettinger/morepi/issues"
 	}
 }

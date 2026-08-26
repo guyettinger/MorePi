@@ -1,4 +1,11 @@
-# Research: Smallest Self-Modifying App Framework (Pi + Local Ollama, TypeScript)
+# Design — Smallest Self-Modifying App Framework (Pi + Local Ollama, TypeScript)
+
+This is the full design rationale, threat-model reasoning, and external research
+behind MorePi. The **enforced** safety invariants and the risk/decision tables
+live in [Threat model](./threat-model.md); operational usage lives in the
+[User guide](./user-guide.md).
+
+---
 
 ## TL;DR
 
@@ -398,3 +405,9 @@ From Ouroboros, pi-ralph, and pi-reflect:
 | Ollama OpenAI compat | https://docs.ollama.com/api/openai-compatibility |
 | Pi extension examples | `examples/extensions/` in the Pi package |
 | Pi SDK examples | `examples/sdk/` in the Pi package |
+
+---
+
+*See also:* [Threat model](./threat-model.md) · [User guide](./user-guide.md) ·
+[Getting started](./getting-started.md) · [Configuration](./configuration.md) ·
+[Developer guide](./developer.md)

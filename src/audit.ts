@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { resolvePaths, type SelfPaths } from "./config.js";
+import type { SelfPaths } from "./config.js";
 import type { AuditEntry, StateSnapshot } from "./types.js";
+import { ensureDir, genId } from "./util.js";
 
 /**
  * The audit + rollback subsystem.
@@ -31,7 +31,7 @@ class AuditLog {
 
 	async record(input: RecordInput): Promise<AuditEntry> {
 		const entry: AuditEntry = {
-			id: `aud_${randomUUID().slice(0, 12)}`,
+			id: genId("aud_", 12),
 			ts: new Date().toISOString(),
 			kind: input.kind,
 			actor: input.actor,
@@ -44,7 +44,7 @@ class AuditLog {
 	}
 
 	private async append(entry: AuditEntry): Promise<void> {
-		await mkdir(dirnameSafe(this.file), { recursive: true });
+		await ensureDir(this.file);
 		await appendFile(this.file, `${JSON.stringify(entry)}\n`, "utf8");
 	}
 
@@ -84,12 +84,12 @@ class SnapshotStore {
 	}
 
 	private async writeIndex(index: StateSnapshot[]): Promise<void> {
-		await mkdir(dirnameSafe(this.paths.stateIndex), { recursive: true });
+		await ensureDir(this.paths.stateIndex);
 		await writeFile(this.paths.stateIndex, `${JSON.stringify(index, null, 2)}\n`, "utf8");
 	}
 
 	async snapshot(payload: StateSnapshotInit, label = "auto"): Promise<StateSnapshot> {
-		const id = `snap_${randomUUID().slice(0, 8)}`;
+		const id = genId("snap_", 8);
 		const ts = new Date().toISOString();
 		const snapshot: StateSnapshot = {
 			id,
@@ -171,10 +171,3 @@ function parseLine<T>(line: string): T | null {
 		return null;
 	}
 }
-
-function dirnameSafe(p: string): string {
-	const idx = p.lastIndexOf("/");
-	return idx === -1 ? "." : p.slice(0, idx);
-}
-
-export { resolvePaths };

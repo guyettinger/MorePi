@@ -1,3 +1,5 @@
+import { tokenize } from "./util.js";
+
 /**
  * Context management: the "forget" and "remember" primitives that control what
  * stays in active context.
@@ -61,22 +63,14 @@ export function matchForgetTargets(
 	candidates: readonly { id: string; text: string }[],
 	limit = 5,
 ): string[] {
-	const want = tokenize(request);
+	const want = tokenize(request, { minLength: 3 });
 	if (want.length === 0) return [];
 	const scored = candidates
-		.map((c) => ({ id: c.id, score: countMatches(tokenize(c.text), want) }))
+		.map((c) => ({ id: c.id, score: countMatches(tokenize(c.text, { minLength: 3 }), want) }))
 		.filter((c) => c.score > 0)
 		.sort((a, b) => b.score - a.score)
 		.slice(0, limit);
 	return scored.map((c) => c.id);
-}
-
-function tokenize(text: string): string[] {
-	return text
-		.toLowerCase()
-		.replace(/[^\p{L}\p{N}\s]+/gu, " ")
-		.split(/\s+/)
-		.filter((t) => t.length > 2);
 }
 
 function countMatches(haystack: string[], needles: string[]): number {

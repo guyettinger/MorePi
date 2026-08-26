@@ -1,0 +1,129 @@
+{
+	"$schema": "morepi/addressed-checkpoint",
+	"version": 2,
+	"source": "docs/review.md",
+	"record": "docs/addressed.md",
+	"checkpointFile": ".addressed-checkpoint.json",
+	"strategy": "one fresh subagent per finding A-G, sequential concurrency=1, no session reuse, no transcript passing",
+	"gitHeadBaseline": "00f70dbeac39c90f65e115a2175c374ebb197bc",
+	"updatedAt": "2026-08-26T16:25:51.177Z",
+	"baselineGates": {
+		"lint": "green except checkpoint JSON (tab-formatted to satisfy biome; excluded via .biomeignore)",
+		"typecheck": "pass",
+		"test": "145 tests pass",
+		"smoke": "skips jiti load check (expected, jiti absent)"
+	},
+	"notes": [
+		"subagent owns the code change + runs gates; orchestrator owns docs/addressed.md + this checkpoint",
+		"concurrency=1: items processed sequentially, one fresh subagent each, checkpoint persisted after each item",
+		"on interruption, resume from the first item whose status is not done; util.ts work is additive/idempotent",
+		"A and B are the two 'sensitive' findings per review; both processed with the user-visible/drift caveat recorded"
+	],
+	"items": [
+		{
+			"id": "A",
+			"title": "Magic threshold numbers 55/80 -> DEFAULT_CONFIG",
+			"status": "done",
+			"disposition": "noop-verify",
+			"caveat": "sensitive: gating-adjacent, already rerouted through DEFAULT_CONFIG in baseline tree",
+			"summary": "Already applied in working tree at baseline HEAD; verified guardrails.ts:175, approval.ts:41, evolution.ts:115/137 now read DEFAULT_CONFIG.approvalThreshold/blockThreshold; 55/80 literals remain only in config.ts DEFAULT_CONFIG (their canonical home). No change needed; record documents verification + clean gate.",
+			"updatedAt": "2026-08-25T21:33:00Z"
+		},
+		{
+			"id": "B",
+			"title": "evaluateQuality mirrored in extension",
+			"status": "done",
+			"disposition": "noop-verify",
+			"caveat": "sensitive: user-visible self_eval display wording (\"error(s) observed\"), already in-tree canonical",
+			"summary": "Already applied in working tree at baseline HEAD; verified mirror gone (grep evaluateQualityLocal -> NONE; canonical error(s) observed in evaluation.ts:55). index.ts:19 imports evaluateQuality, :533 routes self_eval through it with guardrailBlocks:0, :928 re-exports. No change needed; verification + green gate close-out.",
+			"gates": {
+				"lint": "PASS (27 files, no fixes)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (146)",
+				"smoke": "PASS (skips jiti load, expected)"
+			},
+			"changedFiles": [],
+			"updatedAt": "2026-08-26T14:17:36.491Z"
+		},
+		{
+			"id": "C",
+			"title": "Triplicated unique/dedupe -> src/util.ts",
+			"status": "done",
+			"disposition": "apply",
+			"caveat": "behavior-preserving (first util.ts, canonical home for later D/E/F/G)",
+			"summary": "Created src/util.ts with generic unique<T>(xs). Wired registry.ts, compaction.ts (dedupe->unique, dedupeTags), memory.ts (call site pre-filters trimmed empties). Added test/util.test.ts (5 tests). Pure DRY, behavior identical. Dropped <T extends string> generic constraint; typecheck clean.",
+			"gates": {
+				"lint": "PASS (29 files, no fixes)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (151, +5 util tests)",
+				"smoke": "PASS (skips jiti, expected)"
+			},
+			"changedFiles": ["src/util.ts", "src/registry.ts", "src/compaction.ts", "src/memory.ts", "test/util.test.ts"],
+			"updatedAt": "2026-08-26T14:28:49.168Z"
+		},
+		{
+			"id": "D",
+			"title": "dirnameSafe + ensureDir -> src/util.ts",
+			"status": "done",
+			"disposition": "apply",
+			"caveat": "zero-risk: ensureDir means mkdir-parent-of-file; audit snapshot dir-path deliberately not converted",
+			"summary": "Created ensureDir(file)+dirnameSafe in src/util.ts (extended C); rewired 4 idiom call sites (audit append/writeIndex, memory add/persist). audit snapshot() dir-mkdir left untouched. memory dropped unused mkdir import; audit kept it.",
+			"gates": {
+				"lint": "PASS (29 files)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (151/9 files)",
+				"smoke": "PASS (skips jiti)"
+			},
+			"changedFiles": ["src/util.ts", "src/audit.ts", "src/memory.ts"],
+			"updatedAt": "2026-08-26T15:11:26.539Z"
+		},
+		{
+			"id": "E",
+			"title": "genId + remove two dead re-exports",
+			"status": "done",
+			"disposition": "apply",
+			"caveat": "behavior-preserving: id format byte-identical; zero re-export importers (verified)",
+			"summary": "Added genId(prefix,len)+node:crypto to src/util.ts; collapsed 3 id sites (mem_/aud_ 12, snap_ 8) byte-identical; removed 2 dead re-exports (join@memory, resolvePaths@audit) + now-unused randomUUID/join(memory)/config-value imports; audit config -> import type SelfPaths.",
+			"gates": {
+				"lint": "PASS (29 files)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (151/9 files)",
+				"smoke": "PASS (skips jiti)"
+			},
+			"changedFiles": ["src/util.ts", "src/memory.ts", "src/audit.ts"],
+			"updatedAt": "2026-08-26T15:30:10.513Z"
+		},
+		{
+			"id": "F",
+			"title": "Unified tokenize with per-caller args",
+			"status": "done",
+			"disposition": "apply-withcare",
+			"caveat": "apply-withcare: preserving requires context keep minLength:3/no-stopwords and memory keep minLength:2+STOPWORDS — both confirmed",
+			"summary": "Unified tokenize(text,{minLength,stopwords?}) in src/util.ts. context uses {minLength:3} (no stopwords), memory uses {minLength:2,stopwords:STOPWORDS}. Both local defs deleted; STOPWORDS kept in memory.ts. +3 tests (154 total). Behavior byte-identical per caller.",
+			"gates": {
+				"lint": "PASS (29 files)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (154/9 files)",
+				"smoke": "PASS (skips jiti)"
+			},
+			"changedFiles": ["src/util.ts", "src/context.ts", "src/memory.ts", "test/util.test.ts"],
+			"updatedAt": "2026-08-26T16:10:04.060Z"
+		},
+		{
+			"id": "G",
+			"title": "Smaller safe smells (been dedup / catch comments / readJsonl optional)",
+			"status": "done",
+			"disposition": "scoped",
+			"caveat": "scoped: apply the one safe concrete change; slugify/slugName left distinct (per review); readJsonl + catch-comments deferred",
+			"summary": "Removed ONE duplicate \"been\" from STOPWORDS in src/memory.ts (Set no-op, behavior unchanged). slugify/slugName left distinct (different grammar+dynamic fallback). readJsonl deferred (lower priority, both load paths). Empty-catch swallows live in out-of-scope src/index.ts so no comment added (documented residual). Only src/memory.ts edited.",
+			"gates": {
+				"lint": "PASS (29 files)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (154/9 files)",
+				"smoke": "PASS (skips jiti)"
+			},
+			"changedFiles": ["src/memory.ts"],
+			"updatedAt": "2026-08-26T16:25:51.178Z"
+		}
+	]
+}

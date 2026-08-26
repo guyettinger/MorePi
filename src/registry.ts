@@ -1,4 +1,5 @@
 import type { CompactionArtifact, SessionState } from "./types.js";
+import { unique } from "./util.js";
 
 /**
  * Branch-scoped working state.
@@ -104,10 +105,6 @@ export class BranchState {
 	snapshot(): SessionState {
 		return structuredCloneSafe(this.state);
 	}
-}
-
-function unique<T extends string>(xs: T[]): T[] {
-	return Array.from(new Set(xs));
 }
 
 function structuredCloneSafe(state: SessionState): SessionState {

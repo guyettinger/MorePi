@@ -1,3 +1,4 @@
+import { DEFAULT_CONFIG } from "./config.js";
 import type { BlastRadius, ChangeClass, GateDecision, RiskAssessment } from "./types.js";
 
 /**
@@ -172,7 +173,7 @@ export function scoreRisk(action: ActionInput): RiskAssessment {
 
 	let decision: GateDecision = "allow";
 	if (hardStop) decision = "block";
-	else if (score >= 55) decision = "approve";
+	else if (score >= DEFAULT_CONFIG.approvalThreshold) decision = "approve";
 
 	return { score, decision, radius, changeClass, reasons, hardStop, rule };
 }

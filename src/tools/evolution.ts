@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DEFAULT_CONFIG } from "../config.js";
 import { type PromotionDecision, shouldPromote } from "../evaluation.js";
 import { type ActionInput, scoreRisk } from "../guardrails.js";
 import type { EvolvedTool, EvolvedToolMetric } from "../types.js";
@@ -112,7 +113,7 @@ export function initialStatusFor(
 	proposal: EvolutionProposal,
 	risk: ReturnType<typeof scoreRisk>,
 ): EvolvedTool["status"] {
-	if (risk.hardStop || risk.score >= 80) return "proposed";
+	if (risk.hardStop || risk.score >= DEFAULT_CONFIG.blockThreshold) return "proposed";
 	if (proposal.maxRadius === "system" || risk.changeClass === "external-effect") return "shadow";
 	return "proposed";
 }
@@ -134,7 +135,7 @@ export function draftEvolution(proposal: EvolutionProposal, existing: EvolvedToo
 		behaviorPrompt: proposal.behaviorPrompt.trim(),
 		budget: {
 			maxRadius: proposal.maxRadius ?? "module",
-			requiresApproval: risk.score >= 55 || proposal.maxRadius === "system",
+			requiresApproval: risk.score >= DEFAULT_CONFIG.approvalThreshold || proposal.maxRadius === "system",
 		},
 		metrics: current?.metrics ?? EMPTY_METRIC,
 	};

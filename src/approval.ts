@@ -1,4 +1,4 @@
-import type { FrameworkConfig } from "./config.js";
+import { DEFAULT_CONFIG, type FrameworkConfig } from "./config.js";
 import { type ActionInput, decide, scoreRisk } from "./guardrails.js";
 import type { RiskAssessment } from "./types.js";
 
@@ -38,7 +38,12 @@ export interface Gate {
 
 /** Render a compact, description-only prompt so the user can decide. */
 function buildPrompt(assessment: RiskAssessment, action: ActionInput): { title: string; body: string } {
-	const risk = assessment.score >= 80 ? "HIGH" : assessment.score >= 55 ? "MEDIUM" : "LOW";
+	const risk =
+		assessment.score >= DEFAULT_CONFIG.blockThreshold
+			? "HIGH"
+			: assessment.score >= DEFAULT_CONFIG.approvalThreshold
+				? "MEDIUM"
+				: "LOW";
 	const target = targetOf(action);
 	const lines = [
 		`Risk: ${risk} (${assessment.score}/100)`,

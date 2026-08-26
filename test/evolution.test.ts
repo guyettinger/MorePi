@@ -236,6 +236,22 @@ describe("evaluateQuality", () => {
 		expect(verdict.safe).toBe(false);
 	});
 
+	it("phrases the runtime-error note as the canonical '... observed' wording (used by self_eval)", () => {
+		const signals: QualitySignals = {
+			testsPassed: 4,
+			testsTotal: 5,
+			testsAdded: 0,
+			errorCount: 2,
+			changedLines: 10,
+			guardrailBlocks: 0,
+			lintClean: true,
+			reviewed: true,
+		};
+		const verdict = evaluateQuality(signals);
+		expect(verdict.notes).toContain("2 runtime error(s) observed");
+		expect(verdict.safe).toBe(false);
+	});
+
 	it("notes include 'no tests run' when testsTotal is 0", () => {
 		const signals: QualitySignals = {
 			testsPassed: 0,

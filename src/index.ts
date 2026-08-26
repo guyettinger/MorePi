@@ -16,6 +16,7 @@ import { runCompaction } from "./compaction.js";
 import type { FrameworkConfig } from "./config.js";
 import { DEFAULT_CONFIG } from "./config.js";
 import { activeRemembered, formatRememberedMessage, matchForgetTargets, type RememberedFact } from "./context.js";
+import { evaluateQuality } from "./evaluation.js";
 import { type ActionInput, scoreRisk } from "./guardrails.js";
 import { BranchState, type EntryLike, emptyState, reconstructState, STATE_CUSTOM_TYPE } from "./registry.js";
 import { newSkillRecord, type SkillDraft } from "./skills.js";
@@ -529,12 +530,13 @@ function buildEvalTool(_pi: ExtensionAPI, config: FrameworkConfig) {
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const gate = buildGate(config, ctx);
-			const verdict = evaluateQualityLocal({
+			const verdict = evaluateQuality({
 				testsPassed: params.testsPassed ?? 0,
 				testsTotal: params.testsTotal ?? 0,
 				testsAdded: params.testsAdded ?? 0,
 				errorCount: params.errorCount ?? 0,
 				changedLines: params.changedLines ?? 0,
+				guardrailBlocks: 0,
 				lintClean: true,
 				reviewed: Boolean(params.reviewed),
 			});
@@ -555,47 +557,6 @@ function buildEvalTool(_pi: ExtensionAPI, config: FrameworkConfig) {
 		},
 	});
 	return [evalTool];
-}
-
-/** Local mirror of evaluation.evaluateQuality so the tool stays self-contained. */
-function evaluateQualityLocal(s: {
-	testsPassed: number;
-	testsTotal: number;
-	testsAdded: number;
-	errorCount: number;
-	changedLines: number;
-	lintClean: boolean;
-	reviewed: boolean;
-}): { score: number; safe: boolean; notes: string[] } {
-	const notes: string[] = [];
-	let score = 1;
-	const passRate = s.testsTotal > 0 ? s.testsPassed / s.testsTotal : 0;
-	if (s.testsTotal > 0) {
-		score *= 0.5 + 0.5 * passRate;
-		notes.push(`tests ${s.testsPassed}/${s.testsTotal} passed`);
-	} else {
-		notes.push("no tests run");
-	}
-	if (s.testsTotal === 0) score *= 0.7;
-	if (s.testsAdded > 0) {
-		score = Math.min(1, score * 1.05);
-		notes.push(`+${s.testsAdded} test(s) added`);
-	}
-	if (s.errorCount > 0) {
-		score -= Math.min(0.5, s.errorCount * 0.1);
-		notes.push(`${s.errorCount} runtime error(s)`);
-	}
-	if (!s.lintClean) {
-		score -= 0.1;
-		notes.push("lint not clean");
-	}
-	if (s.changedLines > 400) {
-		score -= 0.1;
-		notes.push(`large diff (${s.changedLines} lines)`);
-	}
-	if (!s.reviewed) notes.push("not human-reviewed yet");
-	score = Math.max(0, Math.min(1, score));
-	return { score, safe: score >= 0.6 && s.errorCount === 0, notes };
 }
 
 // ---------------------------------------------------------------------------

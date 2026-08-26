@@ -1,4 +1,5 @@
 import type { CompactionArtifact } from "./types.js";
+import { unique } from "./util.js";
 
 /**
  * Compaction.
@@ -86,8 +87,8 @@ export function artifactFrom(parsed: ParsedCompact, tokensBefore: number): Compa
 	return {
 		ts: new Date().toISOString(),
 		summary: parsed.summary,
-		filesTouched: dedupe(parsed.filesTouched),
-		openItems: dedupe(parsed.openItems),
+		filesTouched: unique(parsed.filesTouched),
+		openItems: unique(parsed.openItems),
 		tokenBudgetUsed: tokensBefore,
 	};
 }
@@ -164,10 +165,6 @@ function asStringArray(v: unknown): string[] {
 		.filter(Boolean);
 }
 
-function dedupe(xs: string[]): string[] {
-	return Array.from(new Set(xs));
-}
-
 function dedupeTags(ctx: SummarizeContext): string[] {
-	return dedupe(["compaction", ...(ctx.tokensBefore > 50_000 ? ["long-session"] : [])]);
+	return unique(["compaction", ...(ctx.tokensBefore > 50_000 ? ["long-session"] : [])]);
 }

@@ -1,7 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
 import type { MemoryRecord } from "./types.js";
+import { ensureDir, genId, tokenize, unique } from "./util.js";
 
 /**
  * Persistent, cross-session memory.
@@ -25,7 +24,7 @@ const DEFAULT_DIMS = 32;
  */
 export function embed(text: string, tags: string[] = [], dims: number = DEFAULT_DIMS): number[] {
 	const vector = new Array<number>(dims).fill(0);
-	const tokens = tokenize(text);
+	const tokens = tokenize(text, { minLength: 2, stopwords: STOPWORDS });
 	for (const token of tokens) addTerm(vector, token, 1, dims);
 	for (const tag of tags) addTerm(vector, tag, 3, dims);
 	return vector;
@@ -100,17 +99,17 @@ export class MemoryStore {
 	async add(input: { content: string; tags?: string[]; source?: string; superseded?: boolean }): Promise<MemoryRecord> {
 		await this.ensureLoaded();
 		const record: MemoryRecord = {
-			id: `mem_${randomUUID().slice(0, 12)}`,
+			id: genId("mem_", 12),
 			ts: new Date().toISOString(),
 			content: normalize(input.content),
-			tags: unique(input.tags ?? []),
+			tags: unique((input.tags ?? []).filter((t) => t.trim().length > 0)),
 			source: input.source ?? "unknown",
 			embedding: embed(input.content, input.tags ?? []),
 			weight: 1,
 			...(input.superseded ? { superseded: true } : {}),
 		};
 		this.records.push(record);
-		await mkdir(dirnameSafe(this.file), { recursive: true });
+		await ensureDir(this.file);
 		await appendFile(this.file, `${JSON.stringify(record)}\n`, "utf8");
 		return record;
 	}
@@ -155,17 +154,9 @@ export class MemoryStore {
 	}
 
 	private async persist(): Promise<void> {
-		await mkdir(dirnameSafe(this.file), { recursive: true });
+		await ensureDir(this.file);
 		await writeFile(this.file, `${this.records.map((r) => JSON.stringify(r)).join("\n")}\n`, "utf8");
 	}
-}
-
-function tokenize(text: string): string[] {
-	return text
-		.toLowerCase()
-		.replace(/[^\p{L}\p{N}\s]+/gu, " ")
-		.split(/\s+/)
-		.filter((t) => t.length > 1 && !STOPWORDS.has(t));
 }
 
 const STOPWORDS = new Set([
@@ -223,7 +214,6 @@ const STOPWORDS = new Set([
 	"have",
 	"had",
 	"been",
-	"been",
 ]);
 
 function addTerm(vector: number[], term: string, weight: number, dims: number): void {
@@ -247,10 +237,6 @@ function normalize(s: string): string {
 	return s.replace(/\s+/g, " ").trim();
 }
 
-function unique(ts: string[]): string[] {
-	return Array.from(new Set(ts.filter((t) => t.trim().length > 0)));
-}
-
 function parseLine(line: string): MemoryRecord | null {
 	try {
 		const r = JSON.parse(line) as Partial<MemoryRecord>;
@@ -260,10 +246,3 @@ function parseLine(line: string): MemoryRecord | null {
 		return null;
 	}
 }
-
-function dirnameSafe(p: string): string {
-	const idx = p.lastIndexOf("/");
-	return idx === -1 ? "." : p.slice(0, idx);
-}
-
-export { join };
