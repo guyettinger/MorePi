@@ -6,6 +6,7 @@ import type { QualitySignals } from "../src/evaluation.js";
 import { evaluateQuality, foldMetric, runShadowComparison, shouldPromote } from "../src/evaluation.js";
 import {
 	activationAction,
+	canAutoActivate,
 	draftEvolution,
 	type EvolutionProposal,
 	evaluateShadow,
@@ -154,6 +155,26 @@ describe("evaluateShadow", () => {
 		const result = evaluateShadow(tool, badMetrics, { minRuns: 3, minPassRate: 0.8, maxFailures: 2 });
 		expect(result.decision).toBe("rollback");
 		expect(result.tool.status).toBe("rolled-back");
+	});
+});
+
+describe("canAutoActivate", () => {
+	it("never auto-activates a tool that requires approval (system-radius)", () => {
+		expect(canAutoActivate({ status: "shadow", requiresApproval: true, runs: 5, ranShadow: true, dryRun: false })).toBe(
+			false,
+		);
+	});
+
+	it("auto-activates a shadow tool with shadow evidence that does not require approval", () => {
+		expect(
+			canAutoActivate({ status: "shadow", requiresApproval: false, runs: 0, ranShadow: true, dryRun: false }),
+		).toBe(true);
+	});
+
+	it("does not auto-activate when there is no shadow evidence", () => {
+		expect(
+			canAutoActivate({ status: "shadow", requiresApproval: false, runs: 0, ranShadow: false, dryRun: false }),
+		).toBe(false);
 	});
 });
 

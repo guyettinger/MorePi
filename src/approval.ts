@@ -60,7 +60,8 @@ function buildPrompt(assessment: RiskAssessment, action: ActionInput): { title: 
 export function createGate(opts: GateOptions): Gate {
 	const { config, dryRun = false, ui } = opts;
 
-	const assess = (action: ActionInput): RiskAssessment => scoreRisk(action);
+	const assess = (action: ActionInput): RiskAssessment =>
+		scoreRisk(action, { approvalThreshold: config.approvalThreshold });
 
 	const requestApproval = async (assessment: RiskAssessment, action: ActionInput): Promise<boolean> => {
 		if (!ui?.hasUI) return false;

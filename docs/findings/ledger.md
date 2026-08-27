@@ -105,3 +105,126 @@ entry below records all four gates green.
 - **Evidence/gates**: set count unchanged; lint PASS · typecheck PASS · test PASS (154) · smoke PASS.
 - **Safety invariants preserved**: yes (all six intact; Set structural no-op).
 - **Addressed at**: 2026-08-26T16:25:51Z
+
+## H. `evolve_tool` auto-activates shadow-status tools without approval or shadow evidence
+
+- **Finding**: In `buildEvolveTool`, `canActivate = !gate.dryRun && status === "shadow"` (`src/index.ts:483`) promoted any shadow-status tool straight to `"active"`, ignoring `budget.requiresApproval`. A `maxRadius:"system"` create yields `initialStatusFor` → `"shadow"` yet `requiresApproval` is computed `true` but never consulted downstream (the gate derives risk from `kind`: `evolve_tool` create → module radius, auto-trusted in `src/approval.ts:71`). Net: a system-radius proposal auto-activated with empty metrics and no user confirmation, bypassing the "human approval mandatory before a tool goes active" invariant in `src/evaluation.ts:5`.
+- **Locations**: src/index.ts:483; src/index.ts:484; src/tools/evolution.ts:112; src/tools/evolution.ts:138; src/approval.ts:71; src/evaluation.ts:5
+- **Recommendation**: Gate auto-promotion on `!requiresApproval AND (shadow ran OR runs>0)`, or force `/evolve activate` for system/external-effect radii; add tests asserting a system-radius create stays non-active until explicitly activated.
+- **Risk / why flagged**: Sensitive — changes the promotion gate; user-visible and invariant-adjacent. Confirmed by the user ("go") before applying.
+- **Disposition**: `apply-withcare` — extracted a pure, exported `canAutoActivate({status, requiresApproval, runs, ranShadow, dryRun})` in `src/tools/evolution.ts`; `src/index.ts` `buildEvolveTool` now calls it (replacing the inline `!gate.dryRun && status === "shadow"`).
+- **Files changed**: `src/tools/evolution.ts` (new `canAutoActivate` predicate), `src/index.ts` (import + call site), `test/evolution.test.ts` (+3 tests: system-radius/requires-approval never auto-activates; shadow-with-evidence auto-activates; no-evidence does not).
+- **Evidence**: A system-radius create sets `requiresApproval: true` in `draftEvolution`; the new guard returns `false` for it, so the tool stays `shadow` and must be activated via `/evolve activate`, whose `activationAction(t)` routes through `gate.execute` (system radius scores high → approval/block). Low-risk creates (self/module, no approval) with `params.runShadow` or non-zero runs still auto-activate unchanged.
+- **Gates**: lint PASS (29 files, no fixes) · typecheck PASS (exit 0) · test PASS (162, +3 `canAutoActivate` cases; was 159 at run start) · smoke PASS (skips jiti, expected).
+- **Sensitive caveat (recorded)**: promotion-gate change, user-confirmed this session; no hard-stop list, no lossless-forgetting, no framework-source-guard, and no "no arbitrary code eval" invariants were touched. The sanctioned `/evolve` pipeline still activates system-radius tools through the gate.
+- **Safety invariants preserved**: yes (all six intact).
+- **Addressed at**: 2026-08-27T13:20:00Z
+
+## I. `SnapshotStore` rollback capability is constructed but never driven
+
+- **Finding**: `createGovernance` returns `{ audit, snapshots }` but every `governance(...)` call site used only `.audit`; the `SnapshotStore` subsystem and the `snapshot`/`rollback` audit kinds were never driven from production, so capability #6 (`docs/user-guide.md:252`) was advertised-but-dead.
+- **Locations**: src/stores.ts:48; src/audit.ts:156; src/audit.ts:91; src/index.ts:596; docs/user-guide.md:252
+- **Recommendation**: Either wire a snapshot-on-approve + `/self snapshot`/`/self restore`, or drop the `snapshots` half + the user-guide claim.
+- **Risk / why flagged**: Mixed — touches an advertised capability + a doc claim; wiring is behavior-preserving and additive.
+- **Disposition**: `apply (wire)` — user chose "wire". Added `captureStateSnapshot(manager, st, label, data)` to `src/index.ts`; `/evolve activate` now captures a pre-activation snapshot (`priorStatus` + version) and `/evolve rollback` a post-rollback snapshot, each recorded as a `snapshot`/`rollback` audit entry. A new test in `test/audit.test.ts` drives capture -> audit -> restore through a real `governance()` bundle.
+- **Files changed**: `src/index.ts` (`captureStateSnapshot` + wiring in both `/evolve` cases); `test/audit.test.ts` (+1 end-to-end test, capability #6).
+- **Evidence/gates**: user-guide.md:252 now reflects a subsystem that actually records a restorable payload; lint PASS · typecheck PASS · test PASS (163) · smoke skip.
+- **Safety invariants preserved**: yes (additive snapshot capture; the six invariants are untouched — a `snapshot`/`rollback` audit kind only *records* state, it does not execute code or bypass a gate).
+- **Addressed at**: 2026-08-27T13:30:00Z
+
+## J. Dead exports: `reinforce`, `ToolRegistry.remove`, `gateAction`, `Confidence`
+
+- **Finding**: Several exports had zero call sites and implied un-wired features (reinforced recall weighting, a promotion combiner, a rollback-by-remove).
+- **Locations**: src/memory.ts:140; src/evaluation.ts:158; src/types.ts:22; src/tools/evolution.ts
+- **Recommendation**: Remove the unused exports/type (or wire them); re-run typecheck after each removal.
+- **Risk / why flagged**: Preserving — dead-code deletion; verified zero importers via grep then typecheck.
+- **Disposition**: `apply-withcare (scoped)`. Removed 3 truly-dead symbols; **kept** `reinforce`.
+- **Files changed**: `src/evaluation.ts` (removed `gateAction` **and** its now-orphaned `import { type ActionInput, scoreRisk }`); `src/types.ts` (removed the unused `Confidence` type); `src/tools/evolution.ts` (removed `ToolRegistry.remove`).
+- **Evidence/gates**: grep confirmed zero importers for `gateAction`/`Confidence`/`remove`; `gateAction` was the sole user of `evaluation.ts`'s guardrails import, so that import was removed with it; `reinforce` is a **tested** public-API `MemoryStore` method (`test/memory.test.ts`) and was retained as a deliberate scoping decision (wiring it to a recall path is a separate feature). typecheck clean after each removal · lint PASS · test PASS (163).
+- **Safety invariants preserved**: yes (pure dead-code reduction; no behavior or invariant touched).
+- **Addressed at**: 2026-08-27T13:30:00Z
+
+## K. `loadBranch` does not actually degrade on a throwing `getBranch()`
+
+- **Finding**: `loadBranch` (`src/index.ts`) called `ctx.sessionManager.getBranch()` *outside* the `try`/`catch` the inline comment says will degrade gracefully — so a malformed session that makes `getBranch` throw escaped the fallback instead of landing on `emptyState()`.
+- **Locations**: src/index.ts:709-717 (loadBranch); src/registry.ts (reconstructState / emptyState)
+- **Recommendation**: Move the `getBranch()` call inside the try (or wrap the whole body), and add a test with a throwing `getBranch`.
+- **Risk / why flagged**: Preserving — widens an existing graceful-degrade path; a malformed session now degrades as promised.
+- **Disposition**: `apply-withcare`. Extracted a pure, exported `safeLoadState(get: () => unknown): SessionState` into `src/registry.ts` that invokes the reader *inside* the `try`; `loadBranch` now delegates to it (`new BranchState(safeLoadState(() => ctx.sessionManager.getBranch()))`). Dropped the now-unused `emptyState`/`reconstructState`/`EntryLike` from `index.ts`'s registry import.
+- **Files changed**: `src/registry.ts` (`safeLoadState` added after `reconstructState`); `src/index.ts` (`loadBranch` refactored, import trimmed); `test/registry.test.ts` (new, +7 tests incl. a throwing-reader → `emptyState` case and a non-self-state/bad-payload case).
+- **Evidence/gates**: typecheck clean after trimming imports · lint PASS (`organizeImports --write`) · test PASS (170) · smoke skip.
+- **Safety invariants preserved**: yes (a wider safe fallback; no gate/invariant touched).
+- **Addressed at**: 2026-08-27T13:30:00Z
+
+## L. `scoreRisk` hardcodes `DEFAULT_CONFIG` thresholds instead of the runtime config
+
+- **Finding**: `scoreRisk` clamped develop-mode framework edits and derived `.decision` from `DEFAULT_CONFIG.approvalThreshold`/`blockThreshold` (`src/guardrails.ts`), while the gate re-decides from `config.approvalThreshold`/`blockThreshold`. A consumer that overrides thresholds (via `{...DEFAULT_CONFIG, ...config}`) saw two different answers: the stored `.decision` vs. what the gate enforced.
+- **Locations**: src/guardrails.ts:150,172; src/approval.ts:86; src/stores.ts:60
+- **Recommendation**: Thread the effective thresholds into `scoreRisk` (or compute `.decision` in one place from the same config the gate consumes).
+- **Risk / why flagged**: Mixed/latent — harmless while thresholds are never overridden, but threshold-adjacent once a consumer does.
+- **Disposition**: `apply`. Added an optional `thresholds?: { approvalThreshold?: number }` to `scoreRisk`; it drives both the develop-mode clamp (`Math.min(score, approvalThreshold - 1)`) and the `approve` decision, defaulting to `DEFAULT_CONFIG.approvalThreshold`. `approval.ts` `assess` and the `index.ts` tool-call gate now pass `config.approvalThreshold`.
+- **Files changed**: `src/guardrails.ts` (signature + 2 hardcoded spots); `src/approval.ts` (`assess` threads config); `src/index.ts` (tool-call gate threads config); `test/threshold.test.ts` (+3 regression cases proving a lowered threshold flips a same-score action to 'approve', a raised one to 'allow', and the develop clamp is threshold-dependent).
+- **Evidence/gates**: at default thresholds behavior is identical to before (fallback path); typecheck clean · lint PASS · test PASS (173) · smoke skip.
+- **Safety invariants preserved**: yes (threshold plumbing only; no invariant or hard-stop changed; the `approve`/`allow`/`block` bands still resolve identically at defaults).
+- **Addressed at**: 2026-08-27T13:30:00Z
+
+## M. `NETWORK_INJECT` only catches piped remote-exec, not download-then-run
+
+- **Finding**: `NETWORK_INJECT` requires a literal pipe, so `curl e/x -o x && sh x` / `wget -O x && ./x` evade the hard stop; such commands hit the `external-effect` default (approval-gated, not hard-blocked) — a defense-in-depth gap vs. the documented hard-stop list.
+- **Locations**: src/guardrails.ts:41 (NETWORK_INJECT), :57 (classifyAction default)
+- **Recommendation**: Either broaden the hard stop to remote-fetch-then-execute, or document that only piped injection is a hard stop so the boundary is intentional.
+- **Risk / why flagged**: Sensitive — touches the hard-stop boundary. User chose to **document** the boundary as intentional (behavior-preserving) rather than harden it.
+- **Disposition**: `apply-withcare (document)`. No regex/behavior change. Added: (1) a comment above `NETWORK_INJECT` stating the boundary is deliberate; (2) a comment on the `classifyAction` default `return` noting download-then-run is approval-gated; (3) a note in `docs/threat-model.md` (§3) explaining the intentional boundary; (4) a regression test (`download-then-run is approval-gated, NOT a hardStop`) asserting `&&`/`-o` forms are not hard-stops while the piped `curl … | sh` form remains `hardStop: true, rule: 'network-injection'`.
+- **Files changed**: `src/guardrails.ts` (2 comments); `docs/threat-model.md` (boundary note); `test/guardrails.test.ts` (+1 test). One broken test-insertion was reverted via `git checkout` and re-inserted correctly.
+- **Evidence/gates**: behavior unchanged; the test locks in the current (approval-gated) behavior so a future harden can't regress silently. lint PASS · typecheck PASS · test PASS (174) · smoke skip.
+- **Safety invariants preserved**: yes (hard-stop list unchanged; boundary is documented, and the pipe-exec hard stop + all six invariants remain intact).
+- **Addressed at**: 2026-08-27T13:30:00Z
+
+## N. AGENTS.md file-responsibility table omits `src/util.ts`
+
+- **Finding**: The `src/` layout table in AGENTS.md enumerated every module except `src/util.ts`, even though it is now the canonical home of the shared helpers consolidated in C–G (`unique`/`dedupe`, `genId`, `dirnameSafe`/`ensureDir`, `tokenize`).
+- **Locations**: AGENTS.md:30, AGENTS.md:39
+- **Recommendation**: Add a `src/util.ts` row to the AGENTS.md layout table.
+- **Risk / why flagged**: Preserving — documentation only.
+- **Disposition**: `apply`. Added `| util.ts | Shared primitives consolidated from findings C–G: … |` to the AGENTS.md layout table, right after the `index.ts` row.
+- **Files changed**: `AGENTS.md` (1 row). No code change; no test/typecheck impact.
+- **Evidence/gates**: lint PASS; typecheck/test N/A (docs only). The six invariants are untouched.
+- **Safety invariants preserved**: yes (docs only).
+- **Addressed at**: 2026-08-27T13:30:00Z
+
+## O. `EMPTY_METRIC` defined identically in two files
+
+- **Finding**: The identical zero-metric constant was defined in both `src/tools/evolution.ts:32` and `src/index.ts:46` — a copy that could silently drift.
+- **Locations**: src/tools/evolution.ts:32; src/index.ts:46
+- **Recommendation**: Export a single `EMPTY_METRIC` and import it in the other file.
+- **Risk / why flagged**: Preserving — single source of a shared constant.
+- **Disposition**: `apply`. `EMPTY_METRIC` is now `export`ed from `src/tools/evolution.ts` (its canonical home); `src/index.ts` imports it, removing the local definition and the now-unused `EvolvedToolMetric` type import. Value is byte-identical, so no behavior change.
+- **Files changed**: `src/tools/evolution.ts` (`export const EMPTY_METRIC`); `src/index.ts` (added to the evolution import, removed local def + the orphaned `EvolvedToolMetric` type from the `./types.js` import).
+- **Evidence/gates**: `grep EMPTY_METRIC src/` shows one definition + two import sites; lint PASS · typecheck PASS · test PASS (174) · smoke skip.
+- **Safety invariants preserved**: yes (pure DRY; the zero-metric constant is unchanged).
+- **Addressed at**: 2026-08-27T13:30:00Z
+
+## P. `openTasksFrom` is a no-op stub
+
+- **Finding**: `openTasksFrom` (src/index.ts) unconditionally returns `[]`, so compaction's `openTasks` (wired to it) is always empty — an unfinished extraction path left as a stub.
+- **Locations**: src/index.ts (openTasksFrom + its call site); src/compaction.ts (optional `openTasks` consumer)
+- **Recommendation**: Either implement the extraction from `preparation`, or remove the parameter + call site so the feature is absent rather than silently empty.
+- **Risk / why flagged**: Preserving — nothing relies on non-empty output.
+- **Disposition**: `apply` (remove the stub). Deleted the `openTasksFrom` function and its call site (`openTasks: openTasksFrom(preparation)`) in `src/index.ts`. `compaction.ts` already renders `openTasks: []` and `openTasks: undefined` identically (`ctx.openTasks?.length ? … : “none provided”`), so behavior is unchanged. The optional `CompactionInput.openTasks` field is retained (a valid compaction API surface, still unit-tested in `test/compaction.test.ts`); implementing the extraction is left as a separate feature.
+- **Files changed**: `src/index.ts` (removed `openTasksFrom` def + call site).
+- **Evidence/gates**: `grep openTasksFrom` returns nothing; compaction rendering unchanged (empty/undefined both print “none provided”). lint PASS · typecheck PASS · test PASS (174) · smoke skip.
+- **Safety invariants preserved**: yes (feature-absence, not a behavior change).
+- **Addressed at**: 2026-08-27T13:30:00Z
+
+## Q. `isFrameworkSource` normalize does not resolve `..` segments
+
+- **Finding**: `isFrameworkSource` normalized paths by collapsing `//` → `/` but did not resolve `.`/`..` segments, then compared with string `startsWith`. A path like `<root>/sub/../x` passed the startsWith test (over-block, the safe direction), and the check was order-dependent because `..` was left un-flattened.
+- **Locations**: src/guardrails.ts (~230)
+- **Recommendation**: Resolve `.`/`..` segments (a small canonical path cleanup) before the containment test so the check is canonical rather than string-prefix based.
+- **Risk / why flagged**: Preserving — currently safe-direction only; the cleanup makes the containment test order-independent.
+- **Disposition**: `apply`. Rewrote the local `normalize` to canonically resolve `.`/`..` (pure string ops, still non-Node-usable so the module's isolation stays), and normalized the relative branch (`normalize(joinPath(frameworkRoot, path))`). Containment is now order-independent: `<root>/../escape` → `/escape` (correctly false), `<root>/sub/../src/x` → in-root (true), `<root>/./src/x` → true.
+- **Files changed**: `src/guardrails.ts` (`normalize` rewrite + relative-branch normalization); `test/guardrails.test.ts` (+3 cases: `..` escaping → false, `..` staying in-root → true, `.` collapse).
+- **Evidence/gates**: existing `isFrameworkSource` tests still pass; new cases lock in canonical resolution. lint PASS · typecheck PASS · test PASS (177) · smoke skip.
+- **Safety invariants preserved**: yes — framework-source hard-stop unchanged; containment is *more* correct (removes a latent over-block) but still never under-blocks framework edits.
+- **Addressed at**: 2026-08-27T13:30:00Z
+

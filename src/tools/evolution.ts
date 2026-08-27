@@ -29,7 +29,7 @@ export interface EvolutionProposal {
 	maxRadius?: EvolvedTool["budget"]["maxRadius"];
 }
 
-const EMPTY_METRIC: EvolvedToolMetric = {
+export const EMPTY_METRIC: EvolvedToolMetric = {
 	runs: 0,
 	successes: 0,
 	failures: 0,
@@ -94,14 +94,6 @@ export class ToolRegistry {
 		prev.status = "rolled-back";
 		await this.save(prev);
 	}
-
-	async remove(name: string): Promise<void> {
-		try {
-			await writeFile(join(this.dir, `${name}.json`), "", "utf8");
-		} catch {
-			// ignore
-		}
-	}
 }
 
 /**
@@ -116,6 +108,27 @@ export function initialStatusFor(
 	if (risk.hardStop || risk.score >= DEFAULT_CONFIG.blockThreshold) return "proposed";
 	if (proposal.maxRadius === "system" || risk.changeClass === "external-effect") return "shadow";
 	return "proposed";
+}
+
+/**
+ * Decide whether a freshly drafted shadow tool should auto-activate to "active".
+ *
+ * A tool auto-activates only when it is in shadow status, the gate is not in
+ * dry-run mode, it does *not* require external approval, and shadow evidence
+ * exists (a shadow run was requested or metrics have accumulated). System-radius
+ * proposals always set `requiresApproval`, so this keeps them in shadow where they
+ * must be activated by the user via `/evolve activate` — closing the gap where a
+ * system-radius create with an empty metric would otherwise reach "active"
+ * without any human gate.
+ */
+export function canAutoActivate(p: {
+	status: EvolvedTool["status"];
+	requiresApproval: boolean;
+	runs: number;
+	ranShadow: boolean;
+	dryRun: boolean;
+}): boolean {
+	return !p.dryRun && p.status === "shadow" && !p.requiresApproval && (p.ranShadow || p.runs > 0);
 }
 
 /** Create (or bump) an evolved tool from a proposal. */

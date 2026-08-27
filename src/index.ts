@@ -18,11 +18,18 @@ import { DEFAULT_CONFIG } from "./config.js";
 import { activeRemembered, formatRememberedMessage, matchForgetTargets, type RememberedFact } from "./context.js";
 import { evaluateQuality } from "./evaluation.js";
 import { type ActionInput, isFrameworkSource, scoreRisk } from "./guardrails.js";
-import { BranchState, type EntryLike, emptyState, reconstructState, STATE_CUSTOM_TYPE } from "./registry.js";
+import { BranchState, STATE_CUSTOM_TYPE, safeLoadState } from "./registry.js";
 import { newSkillRecord, type SkillDraft } from "./skills.js";
 import { createStoreManager, type ScopedStores, type StoreManager } from "./stores.js";
-import { activationAction, draftEvolution, type EvolutionProposal, evaluateShadow } from "./tools/evolution.js";
-import type { AuditEntry, CompactionArtifact, EvolvedToolMetric } from "./types.js";
+import {
+	activationAction,
+	canAutoActivate,
+	draftEvolution,
+	EMPTY_METRIC,
+	type EvolutionProposal,
+	evaluateShadow,
+} from "./tools/evolution.js";
+import type { AuditEntry, CompactionArtifact } from "./types.js";
 
 /**
  * MorePi — a self-modifying framework for pi.
@@ -42,14 +49,6 @@ const FRAMEWORK_TOOLS = new Set<string>([
 	"evolve_tool",
 	"self_eval",
 ]);
-
-const EMPTY_METRIC: EvolvedToolMetric = {
-	runs: 0,
-	successes: 0,
-	failures: 0,
-	avgLatencyMs: 0,
-	lastEvalTs: new Date(0).toISOString(),
-};
 
 // ---------------------------------------------------------------------------
 // Framework root: the install dir, used to detect framework-source edits.
@@ -478,9 +477,17 @@ function buildEvolveTool(_pi: ExtensionAPI, config: FrameworkConfig, manager: St
 				metrics = evald.tool.metrics;
 			}
 
-			// Auto-activate only shadow-status tools when not dry-run; keep anything
-			// higher at its current status pending user activation.
-			const canActivate = !gate.dryRun && status === "shadow";
+			// Auto-activate only shadow-status tools that need no external approval
+			// and have shadow evidence; keep anything else (e.g. system-radius,
+			// which requires approval) at its current status pending user
+			// activation via /evolve activate.
+			const canActivate = canAutoActivate({
+				status,
+				requiresApproval: draft.budget.requiresApproval,
+				runs: metrics?.runs ?? 0,
+				ranShadow: Boolean(params.runShadow),
+				dryRun: gate.dryRun ?? false,
+			});
 			const final = { ...draft, status: canActivate ? "active" : status, metrics };
 			await registry.supersede(draft.name);
 			await registry.save(final);
@@ -676,9 +683,16 @@ function registerCommands(pi: ExtensionAPI, config: FrameworkConfig, manager: St
 						ctx.ui.notify(`Activation of ${t.name} blocked: ${outcome.reason}`, "warning");
 						return;
 					}
+					const activationSnapshot = await captureStateSnapshot(manager, st, `pre-activate:${t.name}`, {
+						kind: "activate",
+						name: t.name,
+						version: t.version,
+						priorStatus: t.status,
+					});
 					await st.registry.save({ ...t, status: "active" });
 					await recordAudit(manager, st, undefined, "tool-activated", "user", `activated ${t.name} v${t.version}`, {
 						traceId: outcome?.traceId,
+						snapshotId: activationSnapshot,
 					});
 					ctx.ui.notify(`Activated evolved tool ${t.name} v${t.version} (behavior exposed as a skill).`, "info");
 					return;
@@ -690,8 +704,16 @@ function registerCommands(pi: ExtensionAPI, config: FrameworkConfig, manager: St
 						return;
 					}
 					await st.registry.supersede(name);
+					const rollbackSnapshot = await captureStateSnapshot(manager, st, `post-rollback:${t.name}`, {
+						kind: "rollback",
+						name: t.name,
+						version: t.version,
+					});
 					await st.registry.save({ ...t, status: "rolled-back" });
-					await recordAudit(manager, st, undefined, "tool-rolled-back", "user", `rolled back ${t.name} v${t.version}`);
+					await recordAudit(manager, st, undefined, "tool-rolled-back", "user", `rolled back ${t.name} v${t.version}`, {
+						kind: "rollback",
+						snapshotId: rollbackSnapshot,
+					});
 					ctx.ui.notify(`Rolled back ${t.name} to previous version.`, "info");
 					return;
 				}
@@ -707,13 +729,9 @@ function registerCommands(pi: ExtensionAPI, config: FrameworkConfig, manager: St
 // ---------------------------------------------------------------------------
 
 function loadBranch(ctx: ExtensionContext): BranchState {
-	const entries = ctx.sessionManager.getBranch() as unknown as EntryLike[];
-	// getBranch can throw if the session is malformed; degrade gracefully.
-	try {
-		return new BranchState(reconstructState(entries));
-	} catch {
-		return new BranchState(emptyState());
-	}
+	// getBranch can throw if the session is malformed; safeLoadState invokes
+	// the reader *inside* the try so a malformed branch degrades to emptyState.
+	return new BranchState(safeLoadState(() => ctx.sessionManager.getBranch() as unknown));
 }
 
 async function persistState(pi: ExtensionAPI, branch: BranchState): Promise<void> {
@@ -734,6 +752,34 @@ async function recordAudit(
 		await gov.audit.record({ kind, actor, summary, payload });
 	} catch {
 		// Audit must never break the primary operation.
+	}
+}
+/**
+ * Capture a restorable snapshot of the current on-disk governance state
+ * (memory / skill / tool counts plus a caller payload) and record it in the
+ * audit log, so a compaction or evolution transition can be reversed to this
+ * point. Best-effort: never throws into the caller. Returns the snapshot id.
+ */
+async function captureStateSnapshot(
+	manager: StoreManager,
+	st: ScopedStores,
+	label: string,
+	data: Record<string, unknown>,
+): Promise<string | undefined> {
+	try {
+		const gov = manager.governance(st.config);
+		const memory = await st.memory.count();
+		const skills = await st.skills.list();
+		const tools = await st.registry.list();
+		const snap = await gov.snapshots.snapshot({ memory, skills: skills.length, tools: tools.length, data }, label);
+		await recordAudit(manager, st, undefined, "snapshot", "system", `captured snapshot ${snap.id} (${label})`, {
+			snapshotId: snap.id,
+			...data,
+		});
+		return snap.id;
+	} catch {
+		// Snapshots are best-effort and must never break the primary operation.
+		return undefined;
 	}
 }
 
@@ -810,7 +856,7 @@ export default function morePiExtension(pi: ExtensionAPI): void {
 			frameworkRoot: FRAMEWORK_ROOT,
 			frameworkGuard: config.frameworkGuard.mode,
 		};
-		const risk = scoreRisk(action);
+		const risk = scoreRisk(action, { approvalThreshold: config.approvalThreshold });
 		const st = manager.project(ctx.cwd, config);
 		if (risk.hardStop || risk.score >= config.blockThreshold) {
 			await recordAudit(
@@ -874,7 +920,6 @@ export default function morePiExtension(pi: ExtensionAPI): void {
 					tokensBefore: preparation.tokensBefore,
 					messagesText: conversationText,
 					previousSummary: preparation.previousSummary,
-					openTasks: openTasksFrom(preparation),
 				},
 				summarizer: {
 					summarize: async (prompt, s) => {
@@ -955,10 +1000,6 @@ export default function morePiExtension(pi: ExtensionAPI): void {
 // ---------------------------------------------------------------------------
 // Misc helpers
 // ---------------------------------------------------------------------------
-
-function openTasksFrom(_preparation: { settings?: { enabled: boolean } }): string[] {
-	return [];
-}
 
 /** Best-effort path target of a built-in tool call, for the develop-mode audit. */
 function targetPath(input: unknown): string {
