@@ -38,7 +38,8 @@ facts surface per recall; raise `context.maxTracked` if you remember a lot.
 `frameworkRoot/src` is hard-stopped, so an end user cannot have the agent rewrite
 the extension for them. A maintainer developing the framework enables **develop
 mode** by setting `frameworkGuard: { mode: "develop" }` in config, or by exporting
-`MOREPI_DEVELOP=1` / `MOREPI_FRAMEWORK_GUARD=develop`. Develop mode relaxes that
+`MOREPI_DEVELOP=1` / `MOREPI_FRAMEWORK_GUARD=develop` (or the `npm run dev:develop`
+script, a Unix-shell shorthand that exports `MOREPI_DEVELOP=1` for `pi -e ./extensions/index.ts`). Develop mode relaxes that
 hard-stop so framework-source edits route through the normal approval/allow path;
 the audit log still records every such edit as a `change-approved` system record, so
 the opt-in is conscious, reversible, and never silent.
