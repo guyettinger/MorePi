@@ -30,6 +30,7 @@ npm run lint        # biome check .
 npm test            # vitest run
 npm run smoke       # node scripts/smoke.mjs — loads the entry via jiti with a stub ExtensionAPI
 npm run dev         # pi -e ./extensions/index.ts — needs a TTY; the full interactive experience
+npm run dev:develop   # developer-mode dev (MOREPI_DEVELOP=1); maintainers only
 ```
 
 - **`smoke`** exercises the *real* entry under `jiti`, but swaps the live pi
@@ -40,6 +41,12 @@ npm run dev         # pi -e ./extensions/index.ts — needs a TTY; the full inte
      interactive terminal (a non-TTY shell prints a hint and exits).
 - **Local run, no build:** `pi -e ./extensions/index.ts` (= `npm run dev`)
      or your project's `pi -e ./extensions/index.ts` override.
+- **Develop mode:** `npm run dev:develop` runs `dev` with `MOREPI_DEVELOP=1`
+     exported, so built-in `edit`/`write` to `frameworkRoot/src` are no longer
+     hard-stopped — a conscious, *audited* opt-in for maintainers working on the
+     framework itself (default stays `protect`). The `VAR=val cmd` prefix is a
+     Unix-shell form; on Windows, export the variable first or set
+     `frameworkGuard: { mode: "develop" }` in config. See [Configuration](./configuration.md) and [Threat model](./threat-model.md).
 - **No `build`:** the extension is loaded as `.ts` by jiti; there is no compiled
      artifact. (A compiled bundle is only ever needed *for distribution*, not for
      running the framework.)
@@ -161,8 +168,8 @@ unless you mean it.
 That is the framework-source guard doing its default (`protect`) job: built-in
 `edit`/`write` to `frameworkRoot/src` are hard-stopped so an end user can't have
 the agent rewrite the extension for them. A *maintainer* working in a checkout
-enables **develop mode** with `MOREPI_DEVELOP=1` (or `MOREPI_FRAMEWORK_GUARD=develop`,
-or `frameworkGuard: "develop"` in config). Develop mode relaxes that hard-stop so
+enables **develop mode** with `npm run dev:develop` (or the env var `MOREPI_DEVELOP=1`,
+or `MOREPI_FRAMEWORK_GUARD=develop`, or `frameworkGuard: "develop"` in config). Develop mode relaxes that hard-stop so
 framework-source edits route through the normal approval/allow path — and every
 such edit is still recorded in the audit log, so it is a conscious, audited,
 reversible opt-in. Default behavior stays `protect`.

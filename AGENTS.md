@@ -152,6 +152,7 @@ npm run typecheck    # tsc --noEmit
 npm test             # vitest run   (+ npm test:watch to watch)
 npm run smoke        # load entry via jiti with a stub ExtensionAPI
 npm run dev          # pi -e ./extensions/index.ts  (interactive, needs a TTY)
+npm run dev:develop  # dev mode: MOREPI_DEVELOP=1 pi -e ./extensions/index.ts (maintainers only)
 ```
 
 ## PR & commit instructions
