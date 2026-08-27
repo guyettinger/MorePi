@@ -48,6 +48,38 @@ with **F** and **G** as small scoped tail items.
 
 ---
 
+## Producing findings (generate-findings)
+
+The [generate-findings](../../.agents/skills/generate-findings/SKILL.md) skill is the
+producer counterpart to this drain. It reviews the code across four passes —
+**structural** (DRY / reduction / reuse / dead code), **semantic** (inline-vs-file
+documentation sync), **logical** (control-flow / path tracing), and **safety**
+(the six invariants) — one fresh read-only subagent per pass, then consolidates,
+de-duplicates against the checkpoint, and records the batch through
+[findings-log.mjs](../../.agents/skills/generate-findings/scripts/findings-log.mjs):
+
+```bash
+node .agents/skills/generate-findings/scripts/findings-log.mjs log <findings.json> [--check]
+node .agents/skills/generate-findings/scripts/findings-log.mjs next-id
+node .agents/skills/generate-findings/scripts/findings-log.mjs list-pending
+node .agents/skills/generate-findings/scripts/findings-log.mjs selftest
+```
+
+The writer auto-assigns the next free id per finding, sets a `caveat` for
+`Sensitive` findings, re-renders `queue.md`'s `QUEUE-APPEND` region (script-owned —
+never hand-edit it), and stamps `.checkpoint.json`. A finding object is
+`{ title, category, finding, locations[], recommendation, risk, behavior, priority }`
+— see the shape in the generate skill. New pending items use
+`status: "pending"`, `disposition: ""`, `summary: ""`, `gates: {}`,
+`changedFiles: []`, plus the finding's `category`, `finding`, `recommendation`,
+`risk`, `behavior`, and `priority` fields.
+
+`generate` **only proposes** — it never edits `src/`. Addressing a finding is this
+workflow's job. After a generate run, `npm run format` then `npm run check` must be
+green.
+
+---
+
 ## Invoking a run
 
 1. **Load the run.** Read `docs/findings/.checkpoint.json`. Confirm it parses and

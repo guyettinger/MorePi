@@ -22,33 +22,72 @@ an item is addressed:
 When the queue is empty, the work is complete: `node
 .agents/skills/process-findings/scripts/queue-state.mjs next` prints `ALL DONE`.
 
-> **The queue is currently empty — every finding has been addressed.** Findings
-> **A** through **G** (a point-in-time DRY & reduction review of `src/` and
-> `src/tools/evolution.ts`) are recorded, in full, in the
-> [ledger](./ledger.md). To re-open work, log a new pending finding at the end of
-> the list below using the template, then run the [workflow](./usage.md).
+> The **queue** below is a live, script-owned view of the checkpoint's *pending*
+> items — it fills when the
+> [generate-findings](../../.agents/skills/generate-findings/SKILL.md) skill records a
+> review and drains when [process-findings](../../.agents/skills/process-findings/SKILL.md)
+> addresses it. Findings **A** through **G** (a point-in-time DRY & reduction
+> review of `src/` and `src/tools/evolution.ts`) are recorded, in full, in the
+> [ledger](./ledger.md); none are pending. To produce new findings, run the
+> [generate-findings](../../.agents/skills/generate-findings/SKILL.md) skill; to process them, run the
+> [workflow](./usage.md). The region between the `QUEUE-APPEND` markers is
+> rendered by
+> [findings-log.mjs](../../.agents/skills/generate-findings/scripts/findings-log.mjs).
 
 ---
 
 ## Pending findings
 
-_None. All findings A–G are addressed and recorded in
-[ledger.md](./ledger.md)._
+<!-- QUEUE-APPEND-START -->
+
+_(queue is empty — run the `generate-findings` skill to produce findings, or none
+are pending; processed findings live in [ledger](./ledger.md).)_
+<!-- QUEUE-APPEND-END -->
 
 ---
 
 ## How to log a new pending finding
 
-Append a new numbered section to **Pending findings** above, in the next free
-id, and add a matching `status: "pending"` item to `.checkpoint.json` (see the
-schema in [usage.md](./usage.md#the-checkpoint-item-schema)). Keep the finding
-**self-sufficient** — it must carry its own analysis, because once addressed it
-leaves this file:
+Findings are produced by the
+[generate-findings](../../.agents/skills/generate-findings/SKILL.md) skill, which
+records each finding into the checkpoint and re-renders the marked region above —
+**do not hand-edit the region between the `QUEUE-APPEND` markers** (a later render
+overwrites it). To add a finding by hand (rare), append a finding object to a
+batch JSON array and run the companion writer, which assigns the next free id and
+keeps the checkpoint + this file in sync:
+
+```bash
+# batch file is a JSON array of findings (see the shape below)
+node .agents/skills/generate-findings/scripts/findings-log.mjs log findings.json
+node .agents/skills/generate-findings/scripts/findings-log.mjs log findings.json --check   # dry run
+node .agents/skills/generate-findings/scripts/findings-log.mjs next-id                      # next free id
+node .agents/skills/generate-findings/scripts/findings-log.mjs selftest                     # sanity check
+```
+
+Each finding object (the writer auto-assigns missing ids and validates enums):
+
+```jsonc
+{
+	"title": "short title",              // required; unique, idempotency key
+	"category": "structural",            // structural | semantic | logical | safety
+	"finding": "what is duplicated / reduced / at risk, and why it matters",
+	"locations": ["src/memory.ts:250"],  // required; file:line refs
+	"recommendation": "the concrete fix",
+	"risk": "behavior-preserving? sensitive? which invariant?",
+	"behavior": "Preserving",            // Preserving | Sensitive | Mixed
+	"priority": "med"                    // high | med | low
+}
+```
+
+Keeping a finding **self-sufficient** matters: once addressed it leaves this file. The
+queue section the writer emits mirrors this shape:
 
 ```markdown
 ## <ID>. <short title>
 
-- **Finding**: <what is duplicated / reduced, and why it matters>
+- **Category**: <structural | semantic | logical | safety> — <blurb>
+- **Priority**: <high | med | low>
+- **Finding**: <what is duplicated / reduced / at risk, and why it matters>
 - **Locations**: <file:line, file:line — where the smell lives>
 - **Recommendation**: <the concrete fix>
 - **Risk / why flagged**: <behavior-preserving? sensitive? which invariant?>

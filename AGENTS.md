@@ -175,6 +175,8 @@ npm run dev          # pi -e ./extensions/index.ts  (interactive, needs a TTY)
 - `docs/findings/` — the findings **workflow**: a living [queue](docs/findings/queue.md) of pending
   findings, an append-only [ledger](docs/findings/ledger.md), a machine
   [`.checkpoint.json`](docs/findings/.checkpoint.json), and the [how-to](docs/findings/usage.md).
-  Drained by the `process-findings` skill (`.agents/skills/process-findings/`), one
-  fresh subagent per finding via `scripts/queue-state.mjs`.
+  **Produced** by the `generate-findings` skill (`.agents/skills/generate-findings/`), which reviews the code
+  structurally, semantically, and logically and logs pending findings via `scripts/findings-log.mjs`; **drained**
+  by the `process-findings` skill (`.agents/skills/process-findings/`), one fresh subagent per finding via
+  `scripts/queue-state.mjs`.
 - `src/index.ts` — where the framework wires itself into pi.
