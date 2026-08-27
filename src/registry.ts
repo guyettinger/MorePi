@@ -46,6 +46,20 @@ export function reconstructState(entries: readonly EntryLike[]): SessionState {
 	return state;
 }
 
+/**
+ * Reconstruct branch state from a possibly-throwing reader, degrading to an
+ * empty state when the reader itself throws (e.g. a malformed session).
+ * The reader is invoked *inside* the try so a throw in the fetch — not only in
+ * reconstruction — falls back to an empty state.
+ */
+export function safeLoadState(get: () => unknown): SessionState {
+	try {
+		return reconstructState(get() as readonly EntryLike[]);
+	} catch {
+		return emptyState();
+	}
+}
+
 function coerce(data: unknown): SessionState | null {
 	if (!data || typeof data !== "object") return null;
 	const d = data as Partial<SessionState>;

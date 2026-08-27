@@ -66,3 +66,35 @@ describe("thresholds route through DEFAULT_CONFIG (DRY finding A)", () => {
 		expect(outcome.status).toBe("blocked");
 	});
 });
+
+describe("scoreRisk honours a consumer-supplied approvalThreshold (DRY finding L)", () => {
+	it("a lowered approvalThreshold flips a same-score action to 'approve'", () => {
+		// self_learn: write-skill 35 x project 1.3 => 46, below the default 55.
+		const base = scoreRisk({ tool: "self_learn", input: {} });
+		expect(base.decision).toBe("allow");
+		const lowered = scoreRisk({ tool: "self_learn", input: {} }, { approvalThreshold: 40 });
+		expect(lowered.decision).toBe("approve");
+		expect(lowered.score).toBe(base.score);
+	});
+
+	it("a raised approvalThreshold keeps the same-score action as 'allow'", () => {
+		const base = scoreRisk({ tool: "self_learn", input: {} }, { approvalThreshold: 10 });
+		expect(base.decision).toBe("approve");
+		const raised = scoreRisk({ tool: "self_learn", input: {} }, { approvalThreshold: 90 });
+		expect(raised.decision).toBe("allow");
+		expect(raised.score).toBe(base.score);
+	});
+
+	it("the develop-mode framework clamp follows the supplied threshold", () => {
+		const mk = (approvalThreshold: number) =>
+			scoreRisk(
+				{ tool: "edit", input: { path: "src/foo.ts" }, cwd: "/fw", frameworkRoot: "/fw", frameworkGuard: "develop" },
+				{ approvalThreshold },
+			);
+		const c30 = mk(30);
+		const c20 = mk(20);
+		expect(c30.hardStop).toBe(false); // develop mode relaxes the hard stop
+		expect(c30.score).toBeLessThan(30); // clamped to threshold-1
+		expect(c20.score).toBeLessThan(c30.score); // a lower threshold clamps lower => threshold-dependent
+	});
+});

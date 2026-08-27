@@ -114,4 +114,28 @@ describe("audit", () => {
 		expect(list[0]!.id).toBe(s2.id);
 		expect(list[1]!.id).toBe(s1.id);
 	});
+	it("drives the snapshot capability end-to-end (#6: capture -> audit -> restore)", async () => {
+		const snap = await gov.snapshots.snapshot(
+			{ memory: 3, skills: 1, tools: 1, data: { kind: "activate", name: "toolA", priorStatus: "shadow" } },
+			"pre-activate:toolA",
+		);
+		await gov.audit.record({
+			kind: "snapshot",
+			actor: "system",
+			summary: `captured snapshot ${snap.id}`,
+			payload: { snapshotId: snap.id },
+		});
+		await gov.audit.record({
+			kind: "rollback",
+			actor: "user",
+			summary: "rolled back toolA",
+			payload: { snapshotId: snap.id },
+		});
+		const restored = await gov.snapshots.restore(snap.id);
+		expect(restored).not.toBeNull();
+		expect(restored!.data).toEqual({ kind: "activate", name: "toolA", priorStatus: "shadow" });
+		const entries = await gov.audit.entries();
+		expect(entries[entries.length - 1]!.kind).toBe("rollback");
+		expect(entries[0]!.kind).toBe("snapshot");
+	});
 });

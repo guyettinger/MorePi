@@ -19,9 +19,6 @@ export type ChangeClass =
 	| "modify-framework"
 	| "external-effect";
 
-/** Confidence in a decision, used for canary/shadow gating. */
-export type Confidence = "low" | "med" | "high";
-
 /** A decision about how to handle a change request. */
 export type GateDecision = "allow" | "approve" | "block";
 

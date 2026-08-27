@@ -1,4 +1,3 @@
-import { type ActionInput, scoreRisk } from "./guardrails.js";
 import type { EvolvedTool, EvolvedToolMetric } from "./types.js";
 
 /**
@@ -152,20 +151,6 @@ export function runShadowComparison(shadow: ShadowInput): ShadowResult {
 		if (!cand && base) regressions.push(input);
 	}
 	return { metric, decision: shouldPromote(metric, shadow.policy), regressions };
-}
-
-/** Combine a self-evaluation verdict with the current action's risk. */
-export function gateAction(
-	action: ActionInput,
-	verdict: QualityVerdict,
-	thresholds: { approval: number; block: number },
-): { allow: boolean; reason: string } {
-	const risk = scoreRisk(action);
-	const combined = Math.round(risk.score * 0.6 + (1 - verdict.score) * 100 * 0.4);
-	const reason = `risk ${risk.score} + quality ${verdict.score.toFixed(2)} => combined ${combined}`;
-	if (risk.hardStop) return { allow: false, reason: `hard stop: ${risk.rule ?? "rule"}; ${reason}` };
-	if (combined >= thresholds.block) return { allow: false, reason };
-	return { allow: true, reason };
 }
 
 // ---------------------------------------------------------------------------

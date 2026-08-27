@@ -38,11 +38,7 @@ When the queue is empty, the work is complete: `node
 
 ## Pending findings
 
-<!-- QUEUE-APPEND-START -->
-
-_(queue is empty — run the `generate-findings` skill to produce findings, or none
-are pending; processed findings live in [ledger](./ledger.md).)_
-<!-- QUEUE-APPEND-END -->
+<!-- QUEUE-APPEND-START --><!-- QUEUE-APPEND-END -->
 
 ---
 

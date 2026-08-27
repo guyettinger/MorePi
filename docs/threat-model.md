@@ -91,6 +91,14 @@ the gate never lets through:
 | `NETWORK_INJECT` | `curl ... | sh`, `curl ... | bash`, `wget ... | bash`, `wget ... | sh` | Remote code execution. |
 | `SECRET_DIRS` | Path touches `.git/`, `.env`, `.aws/`, `.ssh/`, `.kube/` | Leaks or corruption of credentials and VCS history. |
 
+A deliberate exception to the `NETWORK_INJECT` hard stop: **download-then-run** 
+commands (e.g. `curl e/x.sh -o x.sh && sh x.sh`) are *not* hard-stopped, because only 
+*piped* remote execution (`curl … | sh`) is. Such commands fall through to the 
+`external-effect` class and are **approval-gated** rather than outright-blocked, so a 
+legitimate remote fetch can proceed with human sign-off. This boundary is intentional, 
+not incidental, and a test locks in that download-then-run is never a hard stop 
+(`test/guardrails.test.ts`).
+
 Plus the **framework-source guard** (§1): by default any tool other than the sanctioned
 `/evolve` pipeline is hard-stopped from writing within `frameworkRoot/src`. The single exception
 is a consciously enabled **develop mode** (`frameworkGuard: "develop"` / `MOREPI_DEVELOP=1`):

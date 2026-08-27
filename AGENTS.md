@@ -41,6 +41,7 @@ The whole framework lives under `src/` as ESM modules (one import per line,
 | `stores.ts` | Memoized per-cwd project stores + global governance (`StoreManager`). |
 | `tools/evolution.ts` | Declarative tool evolution: draft → shadow → activation. |
 | `index.ts` | **The extension** — registers tools, commands, and events. |
+| `util.ts` | Shared primitives consolidated from findings C–G: `unique`/`dedupe` (order-preserving), `genId`, `dirnameSafe`/`ensureDir`, and `tokenize` (per-caller `minLength`/`stopwords`). |
 
 `extensions/index.ts` is the pi-discovered entry point (`pi.extensions` manifest);
 it re-exports `default` from `../src/index.js`. `test/` holds the Vitest suite;

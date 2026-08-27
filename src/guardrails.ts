@@ -47,6 +47,12 @@ const SYSTEM_DIRS = ["/etc/", "/usr/", "/bin/", "/sbin/", "/sys/", "/boot/", "C:
 
 export const DESTRUCTIVE = /(?:rm\s+-rf?|del\s+\/s|rmdir\s+\/s|mkfs|dd\s+if=|format\s+[a-z]:|>\s*\/dev\/sd)/i;
 export const PRIVILEGE = /\b(?:sudo|doas|runas)\b/i;
+// NETWORK_INJECT is a hard stop ONLY for *piped* remote execution (curl|sh,
+// wget|bash, ...). Download-then-run forms such as `curl e/x.sh -o x && sh x`
+// are intentionally NOT hard-stopped: they fall through to the `external-effect`
+// class and are approval-gated instead of outright-blocked, so a legitimate
+// remote fetch can proceed with human sign-off. This boundary is deliberate,
+// not incidental — see docs/threat-model.md (§3) and the mirrored guardrails test.
 export const NETWORK_INJECT = /(?:curl|wget|fetch|nc|ncat)\b[^\n]*\|\s*(?:sh|bash|zsh|python|node)\b/i;
 const EXTERNAL_WRITE = /\b(?:apt|apt-get|brew|npm\s+install|pip\s+install|git\s+push|scp|rsync|docker\s+run|iex)\b/i;
 
@@ -62,6 +68,8 @@ export function classifyAction(action: ActionInput): { radius: BlastRadius; chan
 		}
 		if (NETWORK_INJECT.test(command)) return { radius: "system", changeClass: "external-effect" };
 		if (EXTERNAL_WRITE.test(command)) return { radius: "project", changeClass: "external-effect" };
+		// A download-then-run command (e.g. `curl e/x -o x && sh x`) reaches here: an
+		// external effect that is approval-gated, never a hard stop (see NETWORK_INJECT).
 		return { radius: "project", changeClass: "external-effect" };
 	}
 
@@ -95,7 +103,10 @@ export function classifyAction(action: ActionInput): { radius: BlastRadius; chan
 }
 
 /** Compute a risk assessment for an action. */
-export function scoreRisk(action: ActionInput): RiskAssessment {
+export function scoreRisk(action: ActionInput, thresholds?: { approvalThreshold?: number }): RiskAssessment {
+	// When a consumer overrides thresholds, use them here too so the stored
+	// `.decision`/develop-clamp agree with the gate's own `decide(score, approval, block)`.
+	const approvalThreshold = thresholds?.approvalThreshold ?? DEFAULT_CONFIG.approvalThreshold;
 	const { radius, changeClass } = classifyAction(action);
 	const reasons: string[] = [];
 	let hardStop = false;
@@ -163,7 +174,7 @@ export function scoreRisk(action: ActionInput): RiskAssessment {
 			// maintainer editing their own checkout is not blocked on every edit.
 			// The relaxed guard is still recorded by the caller, so nothing
 			// happens silently.
-			score = Math.min(score, DEFAULT_CONFIG.approvalThreshold - 1);
+			score = Math.min(score, approvalThreshold - 1);
 			reasons.push("framework-source edit in develop mode (guard relaxed, audited)");
 		} else {
 			hardStop = true;
@@ -199,7 +210,7 @@ export function scoreRisk(action: ActionInput): RiskAssessment {
 
 	let decision: GateDecision = "allow";
 	if (hardStop) decision = "block";
-	else if (score >= DEFAULT_CONFIG.approvalThreshold) decision = "approve";
+	else if (score >= approvalThreshold) decision = "approve";
 
 	return { score, decision, radius, changeClass, reasons, hardStop, rule };
 }
@@ -255,7 +266,7 @@ function isRootDelete(path: string | undefined): boolean {
  */
 export function isFrameworkSource(path: string, frameworkRoot?: string): boolean {
 	if (!path || !frameworkRoot) return false;
-	const abs = isAbsolute(path) ? normalize(path) : joinPath(frameworkRoot, path);
+	const abs = isAbsolute(path) ? normalize(path) : normalize(joinPath(frameworkRoot, path));
 	const root = normalize(frameworkRoot);
 	return abs === root || abs.startsWith(`${root}/`);
 }
@@ -272,6 +283,19 @@ function isAbsolute(path: string): boolean {
 }
 
 function normalize(path: string): string {
-	// Collapse ./ and ../ minimally for containment checks.
-	return path.replace(/\/+\//g, "/");
+	// Canonical path: collapse consecutive slashes and resolve . / .. segments so the
+	// containment check is order-independent rather than a raw string-prefix compare.
+	const absolute = path.startsWith("/");
+	const out: string[] = [];
+	for (const part of path.split("/")) {
+		if (part === "" || part === ".") continue;
+		if (part === "..") {
+			const top = out[out.length - 1];
+			if (top && top !== "..") out.pop();
+			else out.push("..");
+			continue;
+		}
+		out.push(part);
+	}
+	return (absolute ? "/" : "") + out.join("/");
 }
