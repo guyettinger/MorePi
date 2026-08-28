@@ -1,10 +1,10 @@
-import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DEFAULT_CONFIG } from "../config.js";
 import { type PromotionDecision, shouldPromote } from "../evaluation.js";
 import { type ActionInput, scoreRisk } from "../guardrails.js";
 import type { EvolvedTool, EvolvedToolMetric } from "../types.js";
+import { genId } from "../util.js";
 
 /**
  * Governed evolution.
@@ -120,6 +120,12 @@ export function initialStatusFor(
  * must be activated by the user via `/evolve activate` — closing the gap where a
  * system-radius create with an empty metric would otherwise reach "active"
  * without any human gate.
+ *
+ * NOTE (finding `[`): given the current `initialStatusFor` logic the `true` branch is
+ * unsatisfiable in production (the only `shadow` origins — system-radius /
+ * external-effect — always carry `requiresApproval`). The function is kept as the
+ * documented contract for a future decoupled-shadow lifecycle; activation today is
+ * manual via `/evolve activate`.
  */
 export function canAutoActivate(p: {
 	status: EvolvedTool["status"];
@@ -133,7 +139,7 @@ export function canAutoActivate(p: {
 
 /** Create (or bump) an evolved tool from a proposal. */
 export function draftEvolution(proposal: EvolutionProposal, existing: EvolvedTool[] = []): EvolvedTool {
-	const current = existing.find((t) => t.name === proposal.name);
+	const current = existing.find((t) => t.name === slugName(proposal.name));
 	const version = (current?.version ?? 0) + 1;
 	const risk = scoreRisk({ tool: "evolve_tool", input: { kind: proposal.action }, viaPipeline: true });
 	return {
@@ -186,6 +192,6 @@ function slugName(name: string): string {
 			.toLowerCase()
 			.replace(/[^a-z0-9_]+/g, "_")
 			.replace(/^_+|_+$/g, "")
-			.slice(0, 48) || `evolved_${randomUUID().slice(0, 6)}`
+			.slice(0, 48) || genId("evolved_", 6)
 	);
 }

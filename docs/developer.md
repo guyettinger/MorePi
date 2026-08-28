@@ -160,9 +160,10 @@ the `session_start` banner — see [Getting started](./getting-started.md) §3.
 **"I want a capability off / the guards off."**
 Set the matching `enable.*` flag to `false` (Configuration §1): e.g.
 `enable.evolve: false` unregisters `evolve_tool` and `/evolve`;
-`enable.guardrails: false` makes high-risk actions auto-approve — it is a
-deliberate opt-out that the audit log records as `guarded-off`, so keep it on
-unless you mean it.
+`enable.guardrails: false` makes high-risk actions auto-approve — a
+deliberate opt-out that is **not** recorded in the audit log (the gate
+short-circuits, so no entry is written). There is no audit trail for the opt-out
+itself, so keep it on unless you mean it.
 
 **"The guardrails won't let pi edit the framework itself."**
 That is the framework-source guard doing its default (`protect`) job: built-in

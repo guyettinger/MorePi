@@ -266,7 +266,7 @@ session.
 
 | Command | What it does |
 | --- | --- |
-| `/self` | Dashboard: memory fact count, skill names + versions, and the last 10 audit entries. |
+| `/self` | Dashboard: memory fact count, skill names + versions, and the last 8 audit entries. |
 | `/self-audit [n]` | Last `n` audit entries (**default 20**), columns `time / actor / kind / summary`. |
 | `/evolve <verb> [name]` | Manage the evolved-tool registry (see below). |
 

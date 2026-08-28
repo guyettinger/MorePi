@@ -48,24 +48,32 @@ passes through it in four steps:
 
 ### Risk scoring
 
-`score = 0.70 × classWeight + 0.30 × blastRadiusWeight`
+Scoring is purely **multiplicative**: a class *base* risk is multiplied by a
+radius *multiplier*, then rounded. (The additive `0.70 × classWeight + 0.30 ×
+blastRadiusWeight` blend was an earlier model; the code implements multiplication.)
+
+`score = round(base[changeClass] × radiusMult[radius])`, then clamped to `0–100`.
 
 | Change class (`ChangeClass`) | Base risk |
 | --- | --- |
-| `read` | 0 |
+| `read` | 5 |
 | `write-memory` | 20 |
-| `write-context` | 30 |
-| `write-skill` | 40 |
+| `write-context` | 25 |
+| `write-skill` | 35 |
 | `write-tool` | 60 |
 | `modify-framework` | 65 |
-| `external-effect` | 80 |
+| `external-effect` | 55 |
 
-| Blast radius (`BlastRadius`) | Increment |
+| Blast radius (`BlastRadius`) | Multiplier |
 | --- | --- |
-| `self` | 0 |
-| `module` | 15 |
-| `project` | 35 |
-| `system` | 60 |
+| `self` | 1 |
+| `module` | 1.1 |
+| `project` | 1.3 |
+| `system` | 1.6 |
+
+Specific rule checks then raise the floor for destructive / privilege /
+network-injection commands and for framework-pipeline edits, and hard stops
+force a `block` regardless of the resulting score (see §3).
 
 ### Decisions (`decide`)
 
@@ -82,14 +90,18 @@ With `approvalThreshold = 55` and `blockThreshold = 80` (both
 ## 3. Hard stops
 
 These are blocked **regardless of score** — they are the "blown up" patterns
-the gate never lets through:
+the gate never lets through. Each maps to a `rule` label in `scoreRisk` with a
+score floor (or a straight hard stop):
 
-| Guard | Matches | Reason |
+| Rule (label) | Floor | Matches |
 | --- | --- | --- |
-| `DESTRUCTIVE` | `rm -rf`, `rm -r`, `rm -fr`, `dd if=`, `mkfs`, `shutdown`, `reboot`, `halt`, `> /dev/sd`, `truncate`, `shred -f`, `> /dev/null` | Irreversible system/file damage. |
-| `PRIVILEGE` | `sudo`, `doas`, `su ` | Privilege escalation. |
-| `NETWORK_INJECT` | `curl ... | sh`, `curl ... | bash`, `wget ... | bash`, `wget ... | sh` | Remote code execution. |
-| `SECRET_DIRS` | Path touches `.git/`, `.env`, `.aws/`, `.ssh/`, `.kube/` | Leaks or corruption of credentials and VCS history. |
+| `system-path` | hard stop | `touchesSystem` — a write/read targeting a system dir (`/etc/`, `/bin/`, `/usr/`, …) or a cwd outside the project |
+| `protect-git-history` | hard stop | a command that touches `.git` with `rm` or `git push` |
+| `protected-secret` | hard stop | write/edit into `SECRET_DIRS` (`.git/`, `.env`, `.aws/`, `.ssh/`, `.kube/`) — leaks or corruption of credentials and VCS history |
+| `framework-source` | hard stop, unless via `/evolve` pipeline (floor 70) or in develop mode (relaxed + audited) | write/edit targeting `frameworkRoot/src` |
+| `destructive-command` | 85 | `DESTRUCTIVE`: recursive `rm` in any flag arrangement (short or long-form: `rm -rf`, `rm -fr`, `rm -r -f`, `rm --recursive`, …), `del /s`, `rmdir /s`, `mkfs`, `dd\ if=`, `format`, `> /dev/sd` |
+| `privilege-escalation` | 90 | `PRIVILEGE`: `sudo`, `doas`, `runas` |
+| `network-injection` | 80 | `NETWORK_INJECT`: `curl`/`wget`/`fetch`/`nc`/`ncat` piped to `sh`/`bash`/`zsh`/`python`/`node` — the path-prefixed (`\… \| /bin/sh`) and versioned (`… \| python3`) forms are now hard-stopped |
 
 A deliberate exception to the `NETWORK_INJECT` hard stop: **download-then-run** 
 commands (e.g. `curl e/x.sh -o x.sh && sh x.sh`) are *not* hard-stopped, because only 
@@ -105,6 +117,18 @@ is a consciously enabled **develop mode** (`frameworkGuard: "develop"` / `MOREPI
 a maintainer editing the framework's own checkout may write to `frameworkRoot/src`, but every
 such edit is still logged to the audit ledger, so the opt-in never happens silently.
 
+**Known boundary — `bash` as the raw escape hatch.** The framework-source guard is
+enforced only on the structured `write`/`edit` tools' write paths (via
+`isFrameworkSource`); the `bash` arm does *not* statically detect redirection or
+in-place edits of `frameworkRoot/src` (e.g. `echo x > <frameworkRoot>/src/x.ts`,
+`sed -i …`, `tee`). This is deliberate: the `bash` tool is the agent's raw escape
+hatch, and statically parsing shell redirections is error-prone and would block
+legitimate local commands. The guard is therefore scoped to the structured write/
+edit surface; a maintainer who wants `bash` writes to framework source audited too
+should stay in `develop` mode (which logs framework-source edits) and treat raw
+`bash` as their own responsibility. This is the same intentional-boundary stance
+taken for the `NETWORK_INJECT` download-then-run case above.
+
 ---
 
 ## 4. How to read this
@@ -112,9 +136,12 @@ such edit is still logged to the audit ledger, so the opt-in never happens silen
 - **Raise `approvalThreshold`** to get fewer prompts for trusted work;
     **lower `blockThreshold`** to be more conservative. (See
     [Configuration](./configuration.md).)
-- **The audit log records every gate.** `change-approved`, `change-blocked`, and
-     `guarded-off` are first-class `AuditKind`s, so any opt-out of the guards is
-    itself logged and reviewable (see [Developer guide](./developer.md) FAQ).
+- **The audit log records every gate decision.**
+     `change-approved` / `change-blocked` are first-class `AuditEntry.kind` values,
+      so **decisions** are logged and reviewable. Caveat: **disabling
+      `enable.guardrails` is *not* itself logged** (the guardrail path
+      short-circuits, so no entry is written); turning the guards off is a silent,
+      deliberate opt-out (see [Developer guide](./developer.md) FAQ).
 - When evaluating an evolved tool, use `self_eval` for an **advisory** quality
     read and `shouldPromote` for the shadow→active promotion gate. Humans remain
     the gate; `self_eval` never auto-approves.

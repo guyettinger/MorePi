@@ -125,7 +125,7 @@ and the enforced invariants in `docs/threat-model.md`:
 | 3 | Self-learning | `self_learn` | Recurring patterns → reviewable `SKILL.md`; never auto-executed. |
 | 4 | Tool evolution | `evolve_tool` / `/evolve` | Fully declarative; proposals become `SKILL.md`, no arbitrary code. |
 | 5 | Evaluation & promotion | `self_eval`, shadow comparison | Quality signals gate shadow → active promotion. |
-| 6 | Audit & rollback | `/self-audit` / `/audit` / `SnapshotStore` | Append-only JSONL log; snapshots enable full rollback. |
+| 6 | Audit & rollback | `/self` / `/self-audit` / `SnapshotStore` | Append-only JSONL log; snapshots enable full rollback. |
 
 ## Safety model — do not regress
 

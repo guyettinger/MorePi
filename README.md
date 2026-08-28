@@ -32,7 +32,7 @@ active: [Getting started](docs/getting-started.md).
 | 3 | **Self-Learning** | `self_learn` | Recurring task patterns are written as reviewable `SKILL.md` files; never auto-executed |
 | 4 | **Tool Evolution** | `evolve_tool`, `/evolve` | Fully declarative: proposals become `SKILL.md` behavior records; no arbitrary code execution |
 | 5 | **Evaluation & Promotion** | `self_eval`, shadow comparison | Quality signals gate a `shadow → active` promotion; humans stay the gate |
-| 6 | **Audit & Rollback** | `/self-audit`, `/audit`, `SnapshotStore` | Append-only JSONL audit log; state snapshots enable full rollback |
+| 6 | **Audit & Rollback** | `/self`, `/self-audit`, `SnapshotStore` | Append-only JSONL audit log; state snapshots enable full rollback |
 
 Everything is gated by one risk-and-approval gate; the three enforced safety
 invariants (declarative evolution, lossless forgetting, framework-source guard)

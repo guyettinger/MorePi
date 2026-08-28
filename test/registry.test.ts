@@ -71,4 +71,27 @@ describe("BranchState", () => {
 		expect(b.current.remembered).toEqual([]);
 		expect(b.current.forgotten).toEqual(["a"]);
 	});
+
+	// T: re-remembering a forgotten id must lift the forget — a later remember
+	// wins, so forgetting stays reversible. The forgotten set previously won
+	// permanently, making context_remember of a previously-forgotten fact a
+	// silent no-op.
+	it("re-remembering a forgotten id clears it from forgotten (reversibility)", () => {
+		const b = new BranchState();
+		b.remember(["a"]);
+		b.forget(["a"]);
+		expect(b.current.forgotten).toEqual(["a"]);
+		b.remember(["a"]);
+		expect(b.current.remembered).toEqual(["a"]);
+		expect(b.current.forgotten).toEqual([]);
+	});
+	it("only lifts the re-remembered id, leaving other forgotten ids standing", () => {
+		const b = new BranchState();
+		b.remember(["a", "b"]);
+		b.forget(["a", "b"]);
+		expect(b.current.forgotten).toEqual(["a", "b"]);
+		b.remember(["a"]);
+		expect(b.current.remembered).toEqual(["a"]);
+		expect(b.current.forgotten).toEqual(["b"]);
+	});
 });

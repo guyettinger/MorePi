@@ -89,6 +89,15 @@ export function createGate(opts: GateOptions): Gate {
 
 			if (!config.enable.guardrails) return make("allowed", true, "guardrails disabled");
 
+			// A3: honor the assessment's own hard stop before the threshold-only
+			// `decide` — scoreRisk already folds hard stops into `.hardStop`, so a
+			// hard stop must block even when its numeric score sits below the block
+			// threshold (defensive: today no gated input carries a hard stop, but a
+			// future path/command-bearing tool must not clear a hard stop via its
+			// sub-threshold base score).
+			if (assessment.hardStop)
+				return make("blocked", false, `blocked: ${assessment.rule ?? (assessment.reasons.join("; ") || "hard stop")}`);
+
 			const decision = decide(assessment.score, config.approvalThreshold, config.blockThreshold);
 
 			if (decision === "block") {

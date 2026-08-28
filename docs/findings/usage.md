@@ -25,7 +25,10 @@ truth for *what is left*.
 
 1. **One fresh subagent per finding.** `concurrency=1`. No session reuse, no
    transcript passing between items. The orchestrator coordinates; the subagent
-   owns the code change **and** runs the gates for its item.
+   owns the code change **and** runs the gates for its item. For a slow local
+   model launch it with a 24h `timeoutMs` and a patient
+   `control.needsAttentionAfterMs` (`86_400_000`) so idle thinking is not read as
+   a stall (see the slow local-model protocol).
 2. **Checkpoint persisted after every item.** Never leave the run with the
    in-memory plan ahead of the on-disk checkpoint.
 3. **Resume from the first item whose `status != "done"`.** Work is
@@ -54,8 +57,10 @@ The [generate-findings](../../.agents/skills/generate-findings/SKILL.md) skill i
 producer counterpart to this drain. It reviews the code across four passes —
 **structural** (DRY / reduction / reuse / dead code), **semantic** (inline-vs-file
 documentation sync), **logical** (control-flow / path tracing), and **safety**
-(the six invariants) — one fresh read-only subagent per pass, then consolidates,
-de-duplicates against the checkpoint, and records the batch through
+(the six invariants) — one fresh read-only subagent per pass, run **one at a time
+(sequential, with a 24h lifetime and a patient `needsAttentionAfterMs` for slow
+local models)**, then consolidates, de-duplicates against the checkpoint, and
+records the batch through
 [findings-log.mjs](../../.agents/skills/generate-findings/scripts/findings-log.mjs):
 
 ```bash
@@ -92,8 +97,11 @@ green.
    ```
 3. **For that finding only:** open its section in `queue.md` by id, read the
    current state of the files it cites, then dispatch a **fresh** subagent. Give
-   the subagent *only that finding's text* plus the minimal current-state context
-   — not the whole transcript.
+  the subagent *only that finding's text* plus the minimal current-state context
+   — not the whole transcript. Launch it with `timeoutMs: 86_400_000` and
+    `control: { needsAttentionAfterMs: 86_400_000, activeNoticeAfterMs: 86_400_000 }`
+   so a slow local model is patient; a `needs_attention` event is a watchdog artifact,
+  not a failure — never stop a finding for being slow.
 4. **The subagent applies the change and runs all four gates**, returning which
    files it changed, each gate's outcome, and why.
 5. **Drain the item.** On green gates: **remove** the finding from `queue.md`,

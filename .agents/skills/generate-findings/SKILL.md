@@ -44,14 +44,64 @@ are in [developer guide](../../../docs/developer.md).
 ## The four passes
 
 Each pass is analysis, not change. Dispatch one **fresh** subagent per pass —
-read-only, no session reuse between passes. Passes are independent, so they may
-run in parallel (concurrency > 1 is safe; *writing* is still serialized through one
-`findings-log.mjs log` call). Give each subagent the pass brief below *plus* the
-minimal current-state it needs (the file it is tracing); never the whole
-transcript.
+read-only, no session reuse between passes. Give each subagent the pass brief
+below *plus* the minimal current-state it needs (the file it is tracing); never the
+whole transcript.
+
+> **Slow local-model protocol (the default for this skill).** Passes run
+> **sequentially, one subagent at a time — never in parallel**. With a slow model
+> (e.g. a local Ollama build) fan-out only starves every child of compute and
+> multiplies the wall-clock wait, while a long silent inference is easily misread
+> as a failure. So this skill:
+>
+> 1. **Runs one pass at a time** — await a pass to completion and collect its JSON
+>    array *before* launching the next. Sequential also keeps each agent's context
+>    minimal.
+> 2. **Gives each run a long lifetime and a patient activity window.** The default
+>    subagent `timeoutMs` is **30 minutes** and the default `needsAttentionAfterMs`
+>    is **60 seconds** — both too tight for a slow model. Launch every pass with
+>    `timeoutMs: 86_400_000` (a 24-hour lifetime, effectively "until it finishes")
+>    and `control: { needsAttentionAfterMs: 86_400_000, activeNoticeAfterMs:
+>    86_400_000 }` so idle *thinking* does **not** emit `needs_attention` and does
+>    **not** interrupt the run.
+>
+> **Do not interrupt, stop, or steer a run just because it is slow or because a
+> `needs_attention` / elapsed event fired** — those are watchdog artifacts for a
+> patient run, not failures. Act only on a run that has actually **ended**
+>   (complete / failed / stopped): if it completed, collect its findings; if it
+>   *genuinely* failed, relaunch that single pass (still one at a time). When you
+>    **block** on the work (`subagent_wait` or a session wait), pass
+>   `stopOnAttention: false` and a long `timeoutMs` so the wait itself does not
+>    give up. In an interactive session, return control and let Pi wake you when the
+>    sequential work finishes — do not spin a poll loop. Use a read-only agent that
+>    can actually read files (`reviewer`, `worker`) — **not** a no-default-loads
+>    agent like `delegate`, which cannot open the repo.
 
 ### 1. Structural — DRY / reduction / reuse / dead code
 
+> **Launch shape — run one pass at a time, in order** (structural, then semantic,
+> then logical, then safety); await each to completion before starting the next.
+>
+> ```js
+> // workflowScript — async:true, ONE pass at a time. Not runs.all, not parallel.
+> const patience = 86_400_000; // 24h lifetime + no-activity window
+> const results = [];
+> for (const pass of passes) {
+>   const r = await runs.run(pass.key, {
+>     agent: "reviewer",                     // read-only, can actually read files
+>     task: pass.brief + "\n" + dedupBlock + shapeBlock,
+>     control: { needsAttentionAfterMs: patience, activeNoticeAfterMs: patience },
+>   });
+>   results.push({ pass: pass.key, output: r.output }); // collect before next
+> }
+> return results.map((x) => `${x.pass}::\n${x.output}`).join("\n\n===\n\n"); // back to parent
+> ```
+>
+> Launch the workflow top-level with `async: true`, `timeoutMs: 86_400_000`, and
+> `control: { needsAttentionAfterMs: 86_400_000 }` so the workflow run itself is
+> patient. The orchestrator then consolidates, de-dups, and logs via the one
+> `findings-log.mjs log` call in the core loop.
+>
 Hunt for code that should be shared or removed. Concrete targets:
 
 - **Duplication.** Near-identical functions/blocks in different files. `src/util.ts`
@@ -156,8 +206,11 @@ validates the enums, and sets the `caveat` automatically when `behavior` is
 1. **Baseline.** Confirm the working tree is clean of unrelated noise
    (`git status`); record `git rev-parse HEAD` (the checkpoint's
    `gitHeadBaseline`). Note it if it drifts from the checkpoint.
-2. **Dispatch the passes.** One fresh read-only subagent per pass (parallel ok).
-   Each returns a list of findings in the shape above, each **self-sufficient**
+2. **Dispatch the passes, one at a time.** One *fresh* read-only subagent per pass,
+   launched **sequentially** with the 24h `timeoutMs` and a patient
+   `control.needsAttentionAfterMs` (see the slow local-model protocol above) — await
+   each pass to completion and collect its JSON array *before* launching the next (no
+   `runs.all` fan-out). Each finding is self-sufficient
    (its own analysis — it leaves the checkpoint once addressed).
 3. **Consolidate + de-dup.** Drop any finding whose title already exists in
    `.checkpoint.json` (any status) — that smell was already logged or addressed.
@@ -188,8 +241,14 @@ validates the enums, and sets the `caveat` automatically when `behavior` is
 
 1. **Read-only on `src/`.** This skill never edits framework source; it only
    *proposes*. Applying a fix is process-findings' job.
-2. **One fresh subagent per pass.** No session reuse between passes; a subagent
-   sees only its brief + the minimal current-state, not the transcript.
+2. **One fresh subagent per pass, run one at a time.** No session reuse between
+   passes; a subagent sees only its brief + the minimal current-state, not the
+   transcript. Passes are launched **sequentially** with a 24h `timeoutMs` and a
+    patient `control.needsAttentionAfterMs` (see the slow local-model protocol) — no
+    `runs.all` fan-out, no 60s interrupts. A slow local model (e.g. Ollama) is
+    supported: `needs_attention` / elapsed-timeout events are **watchdog artifacts,
+     not failures**; do not stop or steer a run for being slow. React only to a
+    run that has actually ended.
 3. **De-dup against the checkpoint.** Never re-log a finding whose title is already
    recorded. The title is the idempotency key.
 4. **Every finding is self-sufficient.** It carries its own analysis, so it is

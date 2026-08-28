@@ -38,7 +38,11 @@ When the queue is empty, the work is complete: `node
 
 ## Pending findings
 
-<!-- QUEUE-APPEND-START --><!-- QUEUE-APPEND-END -->
+<!-- QUEUE-APPEND-START -->
+
+_No pending findings — the drain at 2026-08-28T21:08:30.078Z closed out [, A1, A2, A3, A4, A7, T, W, X, Y. Append a new finding with `node .agents/skills/generate-findings/scripts/findings-log.mjs`._
+
+<!-- QUEUE-APPEND-END -->
 
 ---
 
