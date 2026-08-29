@@ -96,6 +96,20 @@ describe("draftEvolution", () => {
 	});
 });
 
+it("preserves version + metrics for a re-proposed un-slugged name (A4)", () => {
+	// A4: re-proposing an UN-slug name must find the record stored under the slug,
+	// so version bumps and metrics carry over instead of resetting to a duplicate v1.
+	const unslug = "My-Cool_New-Tool!!";
+	const v1 = draftEvolution({ ...proposal(), name: unslug }, []);
+	expect(v1.version).toBe(1);
+	// a non-empty metric that must survive the re-proposal
+	v1.metrics = { runs: 5, successes: 5, failures: 0, avgLatencyMs: 42, lastEvalTs: "1970-01-01T00:00:00.000Z" };
+	const v2 = draftEvolution({ ...proposal(), action: "extend", name: unslug }, [v1]);
+	expect(v2.version).toBe(2);
+	expect(v2.metrics!.runs).toBe(5);
+	expect(v2.metrics!.failures).toBe(0);
+});
+
 describe("evaluateShadow", () => {
 	it("promotes a tool when shouldPromote returns 'promote'", () => {
 		const tool: EvolvedTool = {
@@ -165,7 +179,7 @@ describe("canAutoActivate", () => {
 		);
 	});
 
-	it("auto-activates a shadow tool with shadow evidence that does not require approval", () => {
+	it("[contract-unit] a shadow non-approval tool would auto-activate (inert in production — finding [`)", () => {
 		expect(
 			canAutoActivate({ status: "shadow", requiresApproval: false, runs: 0, ranShadow: true, dryRun: false }),
 		).toBe(true);

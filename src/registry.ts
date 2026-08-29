@@ -94,6 +94,10 @@ export class BranchState {
 
 	remember(ids: readonly string[]): void {
 		this.state.remembered = unique([...this.state.remembered, ...ids]);
+		// Re-remembering a fact that was also forget lifts the forget: a fresh
+		// remember wins, so forgetting stays genuinely reversible (symmetric with
+		// forget() dropping from remembered).
+		this.state.forgotten = this.state.forgotten.filter((id) => !new Set(ids).has(id));
 		capState(this.state);
 	}
 

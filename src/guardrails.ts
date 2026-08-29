@@ -45,7 +45,8 @@ export interface ActionInput {
 export const SECRET_DIRS = [".git/", ".env", ".aws/", ".ssh/", ".kube/"];
 const SYSTEM_DIRS = ["/etc/", "/usr/", "/bin/", "/sbin/", "/sys/", "/boot/", "C:\\Windows", "C:\\System"];
 
-export const DESTRUCTIVE = /(?:rm\s+-rf?|del\s+\/s|rmdir\s+\/s|mkfs|dd\s+if=|format\s+[a-z]:|>\s*\/dev\/sd)/i;
+export const DESTRUCTIVE =
+	/(?:\brm\s(?=[\s\S]*?(?:--recursive\b|-[a-z-]*r[a-z-]*))[^\n]*|del\s+\/s|rmdir\s+\/s|mkfs|dd\s+if=|format\s+[a-z]:|>\s*\/dev\/sd)/i;
 export const PRIVILEGE = /\b(?:sudo|doas|runas)\b/i;
 // NETWORK_INJECT is a hard stop ONLY for *piped* remote execution (curl|sh,
 // wget|bash, ...). Download-then-run forms such as `curl e/x.sh -o x && sh x`
@@ -53,8 +54,8 @@ export const PRIVILEGE = /\b(?:sudo|doas|runas)\b/i;
 // class and are approval-gated instead of outright-blocked, so a legitimate
 // remote fetch can proceed with human sign-off. This boundary is deliberate,
 // not incidental — see docs/threat-model.md (§3) and the mirrored guardrails test.
-export const NETWORK_INJECT = /(?:curl|wget|fetch|nc|ncat)\b[^\n]*\|\s*(?:sh|bash|zsh|python|node)\b/i;
-const EXTERNAL_WRITE = /\b(?:apt|apt-get|brew|npm\s+install|pip\s+install|git\s+push|scp|rsync|docker\s+run|iex)\b/i;
+export const NETWORK_INJECT =
+	/(?:curl|wget|fetch|nc|ncat)\b[^\n]*\|\s*([^|]*?\/?)(?:sh|bash|zsh|python[0-9.]*|node)\b/i;
 
 /** Classify the kind of change an action represents. */
 export function classifyAction(action: ActionInput): { radius: BlastRadius; changeClass: ChangeClass } {
@@ -67,9 +68,9 @@ export function classifyAction(action: ActionInput): { radius: BlastRadius; chan
 			return { radius: "system", changeClass: "external-effect" };
 		}
 		if (NETWORK_INJECT.test(command)) return { radius: "system", changeClass: "external-effect" };
-		if (EXTERNAL_WRITE.test(command)) return { radius: "project", changeClass: "external-effect" };
-		// A download-then-run command (e.g. `curl e/x -o x && sh x`) reaches here: an
-		// external effect that is approval-gated, never a hard stop (see NETWORK_INJECT).
+		// A download-then-run or package-install command (e.g. `curl e/x -o x && sh x`,
+		// `npm install …`) reaches here: an external effect that is approval-gated, never a
+		// hard stop (only piped network injection is a hard stop — see NETWORK_INJECT).
 		return { radius: "project", changeClass: "external-effect" };
 	}
 
@@ -86,7 +87,7 @@ export function classifyAction(action: ActionInput): { radius: BlastRadius; chan
 		if (kind === "modify" || kind === "extend") return { radius: "project", changeClass: "modify-framework" };
 		return { radius: "module", changeClass: "write-tool" };
 	}
-	if (tool === "self_eval" || tool === "self_validate") return { radius: "self", changeClass: "read" };
+	if (tool === "self_eval") return { radius: "self", changeClass: "read" };
 
 	if (tool === "write" || tool === "edit") {
 		const path = pickWritePath(action);

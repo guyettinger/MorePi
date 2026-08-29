@@ -131,7 +131,25 @@ function buildMemoryTools(_pi: ExtensionAPI, config: FrameworkConfig, manager: S
 				cwd: ctx.cwd,
 				frameworkRoot: FRAMEWORK_ROOT,
 			});
-			await recordAudit(manager, st, gate, "memory-write", "agent", `recorded fact: ${params.content.slice(0, 80)}`, {
+			// W: enforce the gate outcome — a blocked/declined decision must not write.
+			if (outcome.status === "blocked" || !outcome.allow) {
+				await recordAudit(
+					manager,
+					st,
+					"memory-write",
+					"agent",
+					`memory write blocked: ${params.content.slice(0, 80)}`,
+					{
+						tags: params.tags ?? [],
+						source: params.source ?? "user",
+						traceId: outcome.traceId,
+						blocked: true,
+						decision: outcome.status,
+					},
+				);
+				return { content: [text(`Memory write blocked: ${outcome.reason}`)], details: { gated: outcome.status } };
+			}
+			await recordAudit(manager, st, "memory-write", "agent", `recorded fact: ${params.content.slice(0, 80)}`, {
 				tags: params.tags ?? [],
 				source: params.source ?? "user",
 				traceId: outcome.traceId,
@@ -177,7 +195,6 @@ function buildMemoryTools(_pi: ExtensionAPI, config: FrameworkConfig, manager: S
 			await recordAudit(
 				manager,
 				st,
-				undefined,
 				"memory-recall",
 				"agent",
 				`recalled ${results.length} fact(s) for: ${params.query}`,
@@ -239,7 +256,6 @@ function buildContextTools(pi: ExtensionAPI, config: FrameworkConfig, manager: S
 			await recordAudit(
 				manager,
 				st,
-				undefined,
 				"context-remember",
 				"agent",
 				`remembered ${facts.length} fact(s): "${params.query}"`,
@@ -296,7 +312,6 @@ function buildContextTools(pi: ExtensionAPI, config: FrameworkConfig, manager: S
 			await recordAudit(
 				manager,
 				st,
-				undefined,
 				"context-forget",
 				"agent",
 				`forgotten ${targets.length} fact(s): "${params.target}"`,
@@ -357,20 +372,31 @@ function buildLearnTool(_pi: ExtensionAPI, config: FrameworkConfig, manager: Sto
 			const record = newSkillRecord(draft, existing.length);
 			record.sourcePatterns = params.examples ?? [];
 			const file = await st.skills.add(record);
-			await recordAudit(
-				manager,
-				st,
-				gate,
-				"skill-learned",
-				"agent",
-				`generated skill "${record.name}" v${record.version}`,
-				{
-					steps: record.steps.length,
-					triggers: record.triggers.length,
-					traceId: outcome.traceId,
-					decision: outcome.status,
-				},
-			);
+			// W: enforce the gate outcome — a blocked/declined decision must not write a skill.
+			if (outcome.status === "blocked" || !outcome.allow) {
+				await recordAudit(
+					manager,
+					st,
+					"skill-learned",
+					"agent",
+					`generated skill "${record.name}" v${record.version} (blocked)`,
+					{
+						blocked: true,
+						traceId: outcome.traceId,
+						decision: outcome.status,
+					},
+				);
+				return {
+					content: [text(`Self-learn blocked: ${outcome.reason}`)],
+					details: { name: record.name, status: "gated", gated: outcome.status },
+				};
+			}
+			await recordAudit(manager, st, "skill-learned", "agent", `generated skill "${record.name}" v${record.version}`, {
+				steps: record.steps.length,
+				triggers: record.triggers.length,
+				traceId: outcome.traceId,
+				decision: outcome.status,
+			});
 			return {
 				content: [text(`Generated skill "${record.name}" v${record.version} -> ${file}`)],
 				details: { name: record.name, version: record.version, file, gated: outcome.status },
@@ -445,19 +471,11 @@ function buildEvolveTool(_pi: ExtensionAPI, config: FrameworkConfig, manager: St
 
 			if (outcome.assessment?.hardStop || outcome.status === "blocked") {
 				await registry.save({ ...draft, status: "proposed" });
-				await recordAudit(
-					manager,
-					st,
-					gate,
-					"tool-proposed",
-					"agent",
-					`proposed ${draft.kind} "${draft.name}" (blocked)`,
-					{
-						blocked: true,
-						reasons: outcome.assessment?.reasons,
-						traceId: outcome.traceId,
-					},
-				);
+				await recordAudit(manager, st, "tool-proposed", "agent", `proposed ${draft.kind} "${draft.name}" (blocked)`, {
+					blocked: true,
+					reasons: outcome.assessment?.reasons,
+					traceId: outcome.traceId,
+				});
 				return {
 					content: [text(`Evolution of "${draft.name}" v${draft.version} was blocked. ${outcome.reason}`)],
 					details: { name: draft.name, version: draft.version, status: "proposed", gated: outcome.status },
@@ -478,9 +496,13 @@ function buildEvolveTool(_pi: ExtensionAPI, config: FrameworkConfig, manager: St
 			}
 
 			// Auto-activate only shadow-status tools that need no external approval
-			// and have shadow evidence; keep anything else (e.g. system-radius,
-			// which requires approval) at its current status pending user
-			// activation via /evolve activate.
+			// and have shadow evidence. NOTE (finding `[`): with the current status
+			// assignment this branch is inert — `initialStatusFor` only yields
+			// `"shadow"` for system-radius or external-effect proposals, and both
+			// always set `requiresApproval`, so `!requiresApproval && status==="shadow"`
+			// is unsatisfiable in production. Activation therefore reaches a tool
+			// manually via `/evolve activate`. `canAutoActivate` is kept as the
+			// documented contract for a future decoupled-shadow lifecycle.
 			const canActivate = canAutoActivate({
 				status,
 				requiresApproval: draft.budget.requiresApproval,
@@ -507,7 +529,6 @@ function buildEvolveTool(_pi: ExtensionAPI, config: FrameworkConfig, manager: St
 			await recordAudit(
 				manager,
 				st,
-				gate,
 				"tool-proposed",
 				"agent",
 				`proposed ${draft.kind} "${draft.name}" v${draft.version} -> ${final.status}`,
@@ -690,7 +711,7 @@ function registerCommands(pi: ExtensionAPI, config: FrameworkConfig, manager: St
 						priorStatus: t.status,
 					});
 					await st.registry.save({ ...t, status: "active" });
-					await recordAudit(manager, st, undefined, "tool-activated", "user", `activated ${t.name} v${t.version}`, {
+					await recordAudit(manager, st, "tool-activated", "user", `activated ${t.name} v${t.version}`, {
 						traceId: outcome?.traceId,
 						snapshotId: activationSnapshot,
 					});
@@ -710,7 +731,7 @@ function registerCommands(pi: ExtensionAPI, config: FrameworkConfig, manager: St
 						version: t.version,
 					});
 					await st.registry.save({ ...t, status: "rolled-back" });
-					await recordAudit(manager, st, undefined, "tool-rolled-back", "user", `rolled back ${t.name} v${t.version}`, {
+					await recordAudit(manager, st, "tool-rolled-back", "user", `rolled back ${t.name} v${t.version}`, {
 						kind: "rollback",
 						snapshotId: rollbackSnapshot,
 					});
@@ -741,7 +762,6 @@ async function persistState(pi: ExtensionAPI, branch: BranchState): Promise<void
 async function recordAudit(
 	manager: StoreManager,
 	st: ScopedStores,
-	_gate: Gate | undefined,
 	kind: AuditEntry["kind"],
 	actor: AuditEntry["actor"],
 	summary: string,
@@ -772,7 +792,7 @@ async function captureStateSnapshot(
 		const skills = await st.skills.list();
 		const tools = await st.registry.list();
 		const snap = await gov.snapshots.snapshot({ memory, skills: skills.length, tools: tools.length, data }, label);
-		await recordAudit(manager, st, undefined, "snapshot", "system", `captured snapshot ${snap.id} (${label})`, {
+		await recordAudit(manager, st, "snapshot", "system", `captured snapshot ${snap.id} (${label})`, {
 			snapshotId: snap.id,
 			...data,
 		});
@@ -862,7 +882,6 @@ export default function morePiExtension(pi: ExtensionAPI): void {
 			await recordAudit(
 				manager,
 				st,
-				undefined,
 				"change-blocked",
 				"system",
 				`blocked ${event.toolName}: ${risk.rule ?? risk.reasons.join("; ")}`,
@@ -876,7 +895,6 @@ export default function morePiExtension(pi: ExtensionAPI): void {
 			await recordAudit(
 				manager,
 				st,
-				undefined,
 				ok ? "change-approved" : "change-blocked",
 				"user",
 				`${ok ? "approved" : "declined"} ${event.toolName}`,
@@ -891,7 +909,6 @@ export default function morePiExtension(pi: ExtensionAPI): void {
 			await recordAudit(
 				manager,
 				st,
-				undefined,
 				"change-approved",
 				"system",
 				`develop-mode framework edit allowed: ${event.toolName} ${target}`,
@@ -969,7 +986,6 @@ export default function morePiExtension(pi: ExtensionAPI): void {
 			await recordAudit(
 				manager,
 				st,
-				undefined,
 				"compaction",
 				"system",
 				`compacted ${preparation.tokensBefore.toLocaleString()} tokens; ${parsed.facts.length} facts, ${parsed.openItems.length} open items`,
